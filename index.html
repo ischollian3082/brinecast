@@ -165,8 +165,14 @@ function loadAll(){S.tideP=null;S.curr=null;S.wt=null;S.buoy={};S.marine=null;re
  loadWeather(lat,lon);loadMarine(lat,lon);loadTides(lat,lon);loadAlerts(lat,lon);renderSky(lat,lon);loadBuoy(lat,lon);loadCurrents(lat,lon);loadWaterTemp(lat,lon)}
 async function loadWeather(lat,lon){S.wxErr=0;
  try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation&hourly=temperature_2m,precipitation_probability,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&past_days=1&forecast_days=7`;
-  const j=await getJSON(u),off=j.utc_offset_seconds,H=j.hourly,c=j.current,now=Date.now();S.wx=j;
+  let j;try{j=await getJSON(u,{},3,15000);if(!j||!j.hourly||!j.current)throw new Error("incomplete forecast response")}
+  catch(e){console.error("loadWeather fetch failed:",e&&e.message);S.wxErr=1;renderSummary();["now","wind","pressure","forecast"].forEach((id,k)=>fail(id,["Now","Wind","Barometric pressure","Weather forecast"][k],e));
+   setTimeout(()=>S.loc&&S.loc.lat==lat&&S.loc.lon==lon&&S.wxErr&&loadWeather(lat,lon),30000);return}
+  const off=j.utc_offset_seconds,H=j.hourly,c=j.current,now=Date.now();S.wx=j;
   const times=H.time.map(t=>omTime(t,off));let ni=times.findIndex(t=>t.getTime()>now-36e5/2);if(ni<0)ni=times.length-1;
+  // Open-Meteo can return null for a "current" field; fall back to this hour's value so one null doesn't break the screen
+  for(const k in c)if(c[k]==null){const alt=k=="apparent_temperature"?"temperature_2m":k;if(H[alt]&&H[alt][ni]!=null)c[k]=H[alt][ni]}
+  if(c.pressure_msl==null)c.pressure_msl=H.pressure_msl.find(v=>v!=null)??1013;
   $("now").innerHTML=`<h2>Now</h2><div class="row" style="justify-content:space-between"><div><span class="big">${Math.round(c.temperature_2m)}°F</span> <span style="font-size:28px">${WICON(c.weather_code)}</span><div>${WMO[c.weather_code]||""} · feels ${Math.round(c.apparent_temperature)}°</div></div>
    <div style="text-align:right"><div style="font-size:24px;font-weight:800">${arrow(c.wind_direction_10m)} ${card(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)}</div><div class="mut">gusts ${Math.round(c.wind_gusts_10m)} mph · clouds ${c.cloud_cover}%</div></div></div>`;
   S.cur.wind=`${card(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)} g${Math.round(c.wind_gusts_10m)} mph`;
@@ -185,8 +191,9 @@ async function loadWeather(lat,lon){S.wxErr=0;
    <div class="mut row" style="justify-content:space-between"><span>−24h</span><span>now</span><span>+24h</span></div>`;
   const D=j.daily;$("forecast").innerHTML=`<h2>Weather forecast</h2><div class="hours" style="margin-bottom:8px">${hrs.slice(0,24).map(i=>`<div class="h"><div class="mut">${fmtH(times[i])}</div><div>${WICON(H.weather_code[i])}</div><b>${Math.round(H.temperature_2m[i])}°</b><div class="mut">💧${H.precipitation_probability[i]??"–"}%</div><div class="mut">☁${H.cloud_cover[i]}%</div></div>`).join("")}</div>
    <table>${D.time.slice(1).map((t,k)=>{const i=k+1;return`<tr><td>${fmtD(new Date(t+"T12:00"))}</td><td>${WICON(D.weather_code[i])} ${WMO[D.weather_code[i]]||""}</td><td>${Math.round(D.temperature_2m_max[i])}°/${Math.round(D.temperature_2m_min[i])}°</td><td>💧${D.precipitation_probability_max[i]??"–"}%</td><td>${arrow(D.wind_direction_10m_dominant[i])}${Math.round(D.wind_speed_10m_max[i])}<span class="mut">g${Math.round(D.wind_gusts_10m_max[i])}</span></td></tr>`}).join("")}</table>`;
- $("now").insertAdjacentHTML("beforeend",`<div class="wtslot mut" style="margin-top:6px"></div>`);renderWT();renderSummary();renderGo();
- }catch(e){S.wxErr=1;renderSummary();["now","wind","pressure","forecast"].forEach((id,k)=>fail(id,["Now","Wind","Barometric pressure","Weather forecast"][k],e))}}
+ $("now").insertAdjacentHTML("beforeend",`<div class="wtslot mut" style="margin-top:6px"></div>`);for(const f of [renderWT,renderSummary,renderGo])try{f()}catch(e){console.error(f.name+" failed:",e)}
+ }catch(e){// data arrived but a section failed to render: log it, don't claim the weather didn't load
+  console.error("loadWeather render failed:",e&&e.stack||e);try{renderSummary()}catch(_){}}}
 async function loadMarine(lat,lon){
  try{const j=await getJSON(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period&length_unit=imperial&timezone=auto&forecast_days=3`);
   const c=j.current||{},H=j.hourly,off=j.utc_offset_seconds;S.marine=j;

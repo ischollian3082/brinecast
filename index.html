@@ -345,6 +345,8 @@ const TC_SVG=(()=>{const arr=(up,c)=>up?`<path d="M18 13V1.8M14 5.8L18 1.8L22 5.
  const moon=(up,c)=>`<path d="M8 1.5A5.5 5.5 0 0 0 8 12.5A3.4 5.5 0 0 1 8 1.5Z" fill="${c}"/>${arr(up,c)}`;
  return{sr:sun(1,"#FFD54A"),ss:sun(0,"#FF7043"),mr:moon(1,"#FFFFFF"),ms:moon(0,"#9AA3AD")}})();
 const TC_IMG={};function tcIcon(k){if(!TC_IMG[k]){const im=new Image();im.onload=()=>drawTC();im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="69" height="42" viewBox="0 0 23 14">${TC_SVG[k]}</svg>`);TC_IMG[k]=im}return TC_IMG[k]}
+// shared "time until" formatter: "42 min" or "1 h 2 m"
+function fmtDur(ms){const m=Math.max(0,Math.round(ms/6e4));return m<60?m+" min":Math.floor(m/60)+" h "+(m%60)+" m"}
 const clampT=t=>Math.max(TC.t0,Math.min(TC.t1,t));
 function snapTC(t){const a=TC.tc,s=performance.now(),D=500;const f=n=>{const k=Math.min(1,(n-s)/D),e=1-Math.pow(1-k,3);TC.tc=a+(t-a)*e;drawTC();if(k<1)requestAnimationFrame(f)};requestAnimationFrame(f)}
 function tideAt(t){const c=TC.curve;let lo=0,hi=c.length-1;if(t<=c[0][0])return c[0][1];if(t>=c[hi][0])return c[hi][1];
@@ -364,17 +366,18 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  g.beginPath();for(let x=-2;x<=W+2;x+=2){const y=Y(tideAt(T(x)));x<=-2?g.moveTo(x,y):g.lineTo(x,y)}g.strokeStyle="#9fe0ff";g.lineWidth=2;g.stroke();
  g.font="11px system-ui,sans-serif";g.textAlign="center";
  // hour ticks + day lines
+ const nbE=$("tcNow"),cr=cv.getBoundingClientRect(),nr=nbE?nbE.getBoundingClientRect():{left:0,right:0,top:0,bottom:0},nbL=nr.left-cr.left,nbR=nr.right-cr.left,nbT=nr.top-cr.top,nbB=nr.bottom-cr.top;// skip hour labels hidden by the Now button
  const h0=new Date(ta);h0.setMinutes(0,0,0);for(let t=+h0;t<tb;t+=36e5){const d=new Date(t),x=X(t);
   if(d.getHours()==0){g.strokeStyle="rgba(255,255,255,.35)";g.setLineDash([]);g.beginPath();g.moveTo(x,top-20);g.lineTo(x,H);g.stroke()}
-  if(d.getHours()%3==0){g.fillStyle="rgba(255,255,255,.75)";g.fillRect(x-.5,H-12,1,6);g.fillText(d.toLocaleTimeString([],{hour:"numeric"}).replace(" ","").toLowerCase(),x,H-16)}}
+  if(d.getHours()%3==0&&!(x+16>nbL&&x-16<nbR&&H-28<nbB&&H>nbT)){g.fillStyle="rgba(255,255,255,.75)";g.fillRect(x-.5,H-12,1,6);g.fillText(d.toLocaleTimeString([],{hour:"numeric"}).replace(" ","").toLowerCase(),x,H-16)}}
  // day label pinned while day visible
  const dl=new Date(ta);dl.setHours(0,0,0,0);for(let t=+dl;t<tb;){const n=new Date(t);n.setDate(n.getDate()+1);g.font="bold 12px system-ui,sans-serif";const lab=new Date(t).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"}).toUpperCase(),tw=g.measureText(lab).width,x=Math.max(X(t)+4,4);
   if(x+tw+6<X(+n)&&x+tw<=W-4){g.textAlign="left";g.fillStyle="#fff";g.fillText(lab,x,top-24)}t=+n}
  // hi/lo labels
- g.textAlign="center";g.font="12px system-ui,sans-serif";const LR=[];
+ g.textAlign="center";g.font="12px system-ui,sans-serif";const LR=[],MID=[];{const m=new Date(ta);m.setHours(0,0,0,0);for(;+m<tb;m.setDate(m.getDate()+1))if(+m>ta)MID.push(X(+m))}
  for(const [t,v,ty] of TC.hl){if(t<ta||t>tb)continue;const l1=v.toFixed(1)+" ft",l2=fmtT(new Date(t)),tw=Math.max(g.measureText(l1).width,g.measureText(l2).width),hw=tw/2+3,y=Y(v);
-  let x=X(t);if(Math.abs(x-cx)<hw+3)x=x<cx?cx-hw-4:cx+hw+4;// keep center line out of the label
-  x=Math.max(hw+2,Math.min(W-hw-2,x));LR.push([x-hw,y-33,hw*2,30]);g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7)}
+  let x=X(t);const t0=X(t);for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3)x=t0<lx?lx-hw-4:lx+hw+4;// keep center & midnight lines out of the label
+  x=Math.max(hw+2,Math.min(W-hw-2,x));for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3){const l=lx-hw-4,r=lx+hw+4;x=l>=hw+2?l:r}LR.push([x-hw,y-33,hw*2,30]);g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7)}
  // sun/moon markers (top strip): inline SVG icons, rasterized at 3x so they stay crisp on iPhone
  g.font="11px system-ui,sans-serif";
  for(const [t,k] of TC.ev){if(t<ta||t>tb)continue;const x=X(t),sun=k[0]=="s",up=k[1]=="r",yy=sun?16:36,col=sun?(up?"#FFD54A":"#FF7043"):(up?"#FFFFFF":"#9AA3AD"),lab=(sun?"":up?"rise ":"set ")+fmtT(new Date(t)).replace(" ",""),ix=Math.max(2,Math.min(W-28-g.measureText(lab).width,x-24)),im=tcIcon(k);
@@ -394,7 +397,7 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  if(!TC.moon[dk]){const il=moonIllum(new Date(new Date(d).setHours(12,0,0,0)));TC.moon[dk]=il}const il=TC.moon[dk];
  $("tcH").textContent=v.toFixed(1);$("tcT").textContent=fmtT(d);$("tcDate").textContent=d.toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"}).toUpperCase();
  $("tcMoonE").textContent=phaseEmoji(il.phase);$("tcPhase").textContent=`${phaseName(il.phase).toUpperCase()} · ${Math.round(il.fraction*100)}%`;
- if(nh){const m=Math.round((nh[0]-tc)/6e4);$("tcNext").textContent=`${nh[2]=="H"?"⬆ Rising":"⬇ Falling"} · ${m<60?m+" min":Math.floor(m/60)+" h "+(m%60)+" m"} to ${nh[2]=="H"?"high":"low"}`}else $("tcNext").textContent=""}
+ if(nh){const m=Math.round((nh[0]-tc)/6e4);$("tcNext").textContent=`${nh[2]=="H"?"⬆ Rising":"⬇ Falling"} · ${fmtDur(nh[0]-tc)} to ${nh[2]=="H"?"high":"low"}`}else $("tcNext").textContent=""}
 
 /* ---------- water temp (CO-OPS) ---------- */
 async function loadWaterTemp(lat,lon){try{let c=LS.get("wtStations",null);
@@ -428,7 +431,7 @@ function curAt(t){const E=S.curr?.E;if(!E)return null;const i=E.findIndex(e=>e.t
 
 /* ---------- "right now" summary ---------- */
 function renderSummary(){const p=[],now=Date.now(),P=S.tideP;
- if(P){const nx=P.find(x=>x.t>now);if(nx){const m=Math.round((nx.t-now)/6e4),d=m<60?m+" min":(m/60).toFixed(m<600?1:0).replace(/\.0$/,"")+" h";p.push(`${nx.type=="H"?"Rising":"Falling"} tide, ${d} to ${nx.type=="H"?"high":"low"}`)}}
+ if(P){const nx=P.find(x=>x.t>now);if(nx){const d=fmtDur(nx.t-now);p.push(`${nx.type=="H"?"Rising":"Falling"} tide, ${d} to ${nx.type=="H"?"high":"low"}`)}}
  if(S.pTrend)p.push("pressure "+({"Rising fast":"rising fast","Rising":"rising","Steady":"steady","Falling":"dropping","Falling fast":"dropping fast"}[S.pTrend]||S.pTrend.toLowerCase()));
  if(S.cur.wind&&S.wx){const c=S.wx.current;p.push(`wind ${card(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)} mph`)}
  if(S.wt)p.push(`water ${Math.round(S.wt.f)}°F`);

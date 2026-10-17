@@ -200,17 +200,24 @@ async function tideStations(){const c=LS.get("tideStations",null);if(c&&Date.now
  const j=await getJSON("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions");
  const s=j.stations.map(x=>[x.id,x.name,x.state,+x.lat,+x.lng]);try{LS.set("tideStations",{t:Date.now(),s})}catch(e){}return s}
 const ymd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
+// Try each nearby station: hi/lo + 6-minute predictions across datums; skip stations with no data or a flat (non-tidal) curve.
+const TIDE_DATUMS=["MLLW","MSL","MTL","STND"];
+async function tidePreds(id,begin,datum,iv,range){try{const j=await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=brinecast&begin_date=${begin}&range=${range}&datum=${datum}&station=${id}&time_zone=gmt&units=english&interval=${iv}&format=json`);return j.predictions&&j.predictions.length?j.predictions:null}catch(e){return null}}
+async function pickTideStation(cands,begin){const noCurve=new URLSearchParams(location.search).get("tidefallback");let skipped=0;
+ for(const c of cands){const[id,name,state]=c.s;let datum=null,hl=null,cv=null;
+  for(const dt of TIDE_DATUMS){hl=await tidePreds(id,begin,dt,"hilo",168);if(hl&&hl.length>=2){datum=dt;break}hl=null}
+  if(!noCurve)for(const dt of datum?[datum]:TIDE_DATUMS){const r=await tidePreds(id,begin,dt,"6",168);if(r&&r.length>100){cv=r.map(p=>[Date.parse(p.t.replace(" ","T")+"Z"),+p.v]);datum=datum||dt;break}}
+  if(cv){const vs=cv.map(x=>x[1]);if(Math.max(...vs)-Math.min(...vs)<0.15&&!hl)cv=null}// flat = non-tidal
+  let P=hl?hl.map(p=>({t:new Date(p.t.replace(" ","T")+"Z"),v:+p.v,type:p.type})):null;
+  if(!P&&cv){P=[];for(let i=5;i<cv.length-5;i++){const v=cv[i][1],w=cv.slice(i-5,i+6).map(x=>x[1]);if(v==Math.max(...w)&&v>cv[i-1][1])P.push({t:new Date(cv[i][0]),v,type:"H"});else if(v==Math.min(...w)&&v<cv[i-1][1])P.push({t:new Date(cv[i][0]),v,type:"L"})}if(P.length<2)P=null}
+  if(P){return{id,name,state,d:c.d,datum,P,curve:cv,skipped,note:cv?"":"Curve estimated between highs and lows"}}
+  skipped++}
+ throw new Error("Nearby NOAA tide stations returned no usable predictions")}
 async function loadTides(lat,lon){
- try{const st=await tideStations();const near=st.map(s=>({s,d:hav(lat,lon,s[3],s[4])})).sort((a,b)=>a.d-b.d)[0];
-  if(near.d>75)throw new Error(`Nearest NOAA tide station is ${near.d.toFixed(0)} mi away`);
-  const[id,name,state]=near.s,b=new Date();b.setDate(b.getDate()-1);
-  // time_zone=gmt so we can convert to the phone's local time reliably
-  const j=await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=conditions_app&begin_date=${ymd(b)}&range=144&datum=MLLW&station=${id}&time_zone=gmt&units=english&interval=hilo&format=json`);
-  if(!j.predictions)throw new Error(j.error?.message||"No predictions");
-  const P=j.predictions.map(p=>({t:new Date(p.t.replace(" ","T")+"Z"),v:+p.v,type:p.type})),now=Date.now();S.tideP=P;
-  // smooth curve: 6-minute predictions; subordinate (hi/lo-only) stations fall back to cosine interpolation
-  let curve=null;if(!new URLSearchParams(location.search).get("tidefallback"))try{const c6=await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=brinecast&begin_date=${ymd(b)}&range=168&datum=MLLW&station=${id}&time_zone=gmt&units=english&interval=6&format=json`);
-   if(c6.predictions&&c6.predictions.length>100)curve=c6.predictions.map(p=>[Date.parse(p.t.replace(" ","T")+"Z"),+p.v])}catch(e){}
+ try{const st=await tideStations();const cands=st.map(s=>({s,d:hav(lat,lon,s[3],s[4])})).sort((a,b)=>a.d-b.d).filter(c=>c.d<=75).slice(0,6);
+  if(!cands.length)throw new Error("No NOAA tide station within 75 mi");
+  const b=new Date();b.setDate(b.getDate()-1);const R=await pickTideStation(cands,ymd(b));
+  const{id,name,state,d:dist,datum,curve,note,skipped}=R,P=R.P,near={d:dist};const now=Date.now();S.tideP=P;S.tideDatum=datum;
   const ni=P.findIndex(p=>p.t>now),nx=P[ni],pv=P[ni-1];let stage="";
   if(nx&&pv){const frac=(now-pv.t)/(nx.t-pv.t);const est=pv.v+(nx.v-pv.v)*(1-Math.cos(Math.PI*frac))/2;
    stage=`${nx.type=="H"?"Rising (incoming)":"Falling (outgoing)"} · ~${est.toFixed(1)} ft · ${Math.round(frac*100)}% to ${nx.type=="H"?"high":"low"}`;
@@ -222,16 +229,16 @@ async function loadTides(lat,lon){
    <table>${T.map(p=>`<tr style="${p.t<now?"opacity:.5":""}"><td>${p.type=="H"?"▲ High":"▼ Low"}</td><td>${fmtT(p.t)}</td><td>${p.v.toFixed(1)} ft</td></tr>`).join("")||`<tr><td class="mut">No predictions</td></tr>`}</table>
    <div class="mut" style="margin-top:4px">${phaseEmoji(il.phase)} ${phaseName(il.phase)} · ${Math.round(il.fraction*100)}% lit</div>
    <div class="mut">☀️ ${tt(sn.rise)} – 🌇 ${tt(sn.set)} · 🌙 rise ${tt(mn.rise)} · set ${tt(mn.set)}</div></div>`}
-  $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">Station ${id}, ${near.d.toFixed(1)} mi away · ft above MLLW</div>
+  $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">Station ${id}, ${near.d.toFixed(1)} mi away · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
    <div class="tc" id="tc"><div class="ro"><div class="moon"><div class="e" id="tcMoonE"></div><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div></div>
     <div class="ht"><div class="v"><span id="tcH">–</span><span style="font-size:16px"> ft</span></div><div class="dt" id="tcT"></div><div class="sm" id="tcNext"></div></div></div>
-    <canvas id="tcCanvas"></canvas>${curve?"":`<div class="note">Curve estimated between highs and lows</div>`}<button class="nowb" id="tcNow">Now</button></div>
+    <canvas id="tcCanvas"></canvas>${note?`<div class="note">${note}</div>`:""}<button class="nowb" id="tcNow">Now</button></div>
    <div style="font-size:19px;font-weight:700;margin:10px 0 6px">${stage||"—"}</div><div id="wlobs"></div>
    <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Daily tide list</summary>${days}</details>
    <a class="mut" target="_blank" href="https://tidesandcurrents.noaa.gov/noaatidepredictions.html?id=${id}">NOAA page ↗</a>`;
- loadWaterLevel(id);renderSummary();initTideChart(P,curve,lat,lon);
+ loadWaterLevel(id,datum);renderSummary();initTideChart(P,curve,lat,lon);
  }catch(e){S.cur.tide=null;fail("tides","Tides",e)}}
-async function loadWaterLevel(id){try{const B=`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?application=conditions_app&datum=MLLW&station=${id}&time_zone=gmt&units=english&format=json`;
+async function loadWaterLevel(id,datum="MLLW"){try{const B=`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?application=brinecast&datum=${datum}&station=${id}&time_zone=gmt&units=english&format=json`;
  const o=(await getJSON(B+"&product=water_level&date=latest")).data?.[0];if(!o||o.v==="")return;
  const t=new Date(o.t.replace(" ","T")+"Z"),age=Math.round((Date.now()-t)/6e4);if(age>180)return;
  const P=(await getJSON(B+"&product=predictions&date=today&interval=6")).predictions||[];

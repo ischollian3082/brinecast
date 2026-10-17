@@ -340,11 +340,11 @@ function initTideChart(P,curve,lat,lon){const cv=$("tcCanvas");if(!cv)return;
  cv.onpointerup=cv.onpointercancel=()=>{if(!drag)return;drag=null;let v=vel;const step=()=>{if(Math.abs(v)<0.3||drag)return;v*=0.92;TC.tc=clampT(TC.tc-v/TC.pxh*36e5);drawTC();requestAnimationFrame(step)};requestAnimationFrame(step)};
  $("tcNow").onclick=()=>snapTC(Date.now());
  if(!TC.ro){TC.ro=new ResizeObserver(()=>drawTC());}TC.ro.disconnect();TC.ro.observe(cv);drawTC()}
-const TC_SVG=(()=>{const arr=(up,c)=>up?`<path d="M18 12.5V3.5M15 6.5L18 3.5L21 6.5" stroke="${c}" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`:`<path d="M18 1.5V10.5M15 7.5L18 10.5L21 7.5" stroke="${c}" stroke-width="1.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
+const TC_SVG=(()=>{const arr=(up,c)=>up?`<path d="M18 13V1.8M14 5.8L18 1.8L22 5.8" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`:`<path d="M18 1V12.2M14 8.2L18 12.2L22 8.2" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
  const sun=(up,c)=>`<path d="M2.5 11A4.5 4.5 0 0 1 11.5 11Z" fill="${c}"/><path d="M0.8 11.8H13.2" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>${arr(up,c)}`;
  const moon=(up,c)=>`<path d="M8 1.5A5.5 5.5 0 0 0 8 12.5A3.4 5.5 0 0 1 8 1.5Z" fill="${c}"/>${arr(up,c)}`;
- return{sr:sun(1,"#FFD54A"),ss:sun(0,"#FF7043"),mr:moon(1,"#E6E9EE"),ms:moon(0,"#E6E9EE")}})();
-const TC_IMG={};function tcIcon(k){if(!TC_IMG[k]){const im=new Image();im.onload=()=>drawTC();im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="66" height="42" viewBox="0 0 22 14">${TC_SVG[k]}</svg>`);TC_IMG[k]=im}return TC_IMG[k]}
+ return{sr:sun(1,"#FFD54A"),ss:sun(0,"#FF7043"),mr:moon(1,"#FFFFFF"),ms:moon(0,"#9AA3AD")}})();
+const TC_IMG={};function tcIcon(k){if(!TC_IMG[k]){const im=new Image();im.onload=()=>drawTC();im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="69" height="42" viewBox="0 0 23 14">${TC_SVG[k]}</svg>`);TC_IMG[k]=im}return TC_IMG[k]}
 const clampT=t=>Math.max(TC.t0,Math.min(TC.t1,t));
 function snapTC(t){const a=TC.tc,s=performance.now(),D=500;const f=n=>{const k=Math.min(1,(n-s)/D),e=1-Math.pow(1-k,3);TC.tc=a+(t-a)*e;drawTC();if(k<1)requestAnimationFrame(f)};requestAnimationFrame(f)}
 function tideAt(t){const c=TC.curve;let lo=0,hi=c.length-1;if(t<=c[0][0])return c[0][1];if(t>=c[hi][0])return c[hi][1];
@@ -368,23 +368,26 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
   if(d.getHours()==0){g.strokeStyle="rgba(255,255,255,.35)";g.setLineDash([]);g.beginPath();g.moveTo(x,top-20);g.lineTo(x,H);g.stroke()}
   if(d.getHours()%3==0){g.fillStyle="rgba(255,255,255,.75)";g.fillRect(x-.5,H-12,1,6);g.fillText(d.toLocaleTimeString([],{hour:"numeric"}).replace(" ","").toLowerCase(),x,H-16)}}
  // day label pinned while day visible
- const dl=new Date(ta);dl.setHours(0,0,0,0);for(let t=+dl;t<tb;){const n=new Date(t);n.setDate(n.getDate()+1);const x=Math.max(X(t)+4,4);
-  if(x<X(+n)-90){g.textAlign="left";g.font="bold 12px system-ui,sans-serif";g.fillStyle="#fff";g.fillText(n.getTime()&&new Date(t).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"}).toUpperCase(),x,top-24)}t=+n}
+ const dl=new Date(ta);dl.setHours(0,0,0,0);for(let t=+dl;t<tb;){const n=new Date(t);n.setDate(n.getDate()+1);g.font="bold 12px system-ui,sans-serif";const lab=new Date(t).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"}).toUpperCase(),tw=g.measureText(lab).width,x=Math.max(X(t)+4,4);
+  if(x+tw+6<X(+n)&&x+tw<=W-4){g.textAlign="left";g.fillStyle="#fff";g.fillText(lab,x,top-24)}t=+n}
  // hi/lo labels
- g.textAlign="center";for(const [t,v,ty] of TC.hl){if(t<ta||t>tb)continue;const x=X(t),y=Y(v);g.fillStyle="#fff";g.font="12px system-ui,sans-serif";
-  g.fillText(v.toFixed(1)+" ft",x,y-20);g.fillText(fmtT(new Date(t)),x,y-7)}
+ g.textAlign="center";g.font="12px system-ui,sans-serif";const LR=[];
+ for(const [t,v,ty] of TC.hl){if(t<ta||t>tb)continue;const l1=v.toFixed(1)+" ft",l2=fmtT(new Date(t)),tw=Math.max(g.measureText(l1).width,g.measureText(l2).width),hw=tw/2+3,y=Y(v);
+  let x=X(t);if(Math.abs(x-cx)<hw+3)x=x<cx?cx-hw-4:cx+hw+4;// keep center line out of the label
+  x=Math.max(hw+2,Math.min(W-hw-2,x));LR.push([x-hw,y-33,hw*2,30]);g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7)}
  // sun/moon markers (top strip): inline SVG icons, rasterized at 3x so they stay crisp on iPhone
  g.font="11px system-ui,sans-serif";
- for(const [t,k] of TC.ev){if(t<ta||t>tb)continue;const x=X(t),sun=k[0]=="s",up=k[1]=="r",yy=sun?16:36,col=sun?(up?"#FFD54A":"#FF7043"):"#E6E9EE",ix=Math.max(2,Math.min(W-86,x-24)),im=tcIcon(k);
-  if(im.complete&&im.naturalWidth)g.drawImage(im,ix,yy-10,22,14);
-  g.fillStyle=col;g.textAlign="left";g.fillText(fmtT(new Date(t)).replace(" ",""),ix+24,yy+1);g.textAlign="center";
-  g.strokeStyle=sun?(up?"rgba(255,213,74,.4)":"rgba(255,112,67,.45)"):"rgba(230,233,238,.25)";g.setLineDash([2,3]);g.lineWidth=1;g.beginPath();g.moveTo(x,yy+5);g.lineTo(x,Y(tideAt(t)));g.stroke()}
+ for(const [t,k] of TC.ev){if(t<ta||t>tb)continue;const x=X(t),sun=k[0]=="s",up=k[1]=="r",yy=sun?16:36,col=sun?(up?"#FFD54A":"#FF7043"):(up?"#FFFFFF":"#9AA3AD"),lab=(sun?"":up?"rise ":"set ")+fmtT(new Date(t)).replace(" ",""),ix=Math.max(2,Math.min(W-28-g.measureText(lab).width,x-24)),im=tcIcon(k);
+  if(im.complete&&im.naturalWidth)g.drawImage(im,ix,yy-10,23,14);
+  g.fillStyle=col;g.textAlign="left";g.fillText(lab,ix+24,yy+1);g.textAlign="center";
+  g.strokeStyle=sun?(up?"rgba(255,213,74,.4)":"rgba(255,112,67,.45)"):(up?"rgba(255,255,255,.3)":"rgba(154,163,173,.25)");g.setLineDash([2,3]);g.lineWidth=1;g.beginPath();g.moveTo(x,yy+5);g.lineTo(x,Y(tideAt(t)));g.stroke()}
  // actual now line
  const nx=X(Date.now());if(nx>-5&&nx<W+5){g.setLineDash([2,3]);g.strokeStyle="#ffd36b";g.lineWidth=1.5;g.beginPath();g.moveTo(nx,top-8);g.lineTo(nx,H-44);g.stroke();g.setLineDash([]);g.font="bold 10px system-ui,sans-serif";const nw=g.measureText("NOW").width+10;g.fillStyle="#ffd36b";g.beginPath();g.roundRect?g.roundRect(nx-nw/2,H-44,nw,15,7):g.rect(nx-nw/2,H-44,nw,15);g.fill();g.fillStyle="#0a1824";g.fillText("NOW",nx,H-33);g.font="11px system-ui,sans-serif"}
  // center cursor
  const v=tideAt(tc),cy=Y(v);g.setLineDash([3,4]);g.strokeStyle="rgba(255,255,255,.9)";g.lineWidth=1;g.beginPath();g.moveTo(cx,top-4);g.lineTo(cx,H);g.stroke();g.setLineDash([]);
  g.beginPath();g.arc(cx,cy,9,0,7);g.fillStyle="#e9f37a";g.fill();
- const l1=v.toFixed(2)+" ft",l2=fmtT(new Date(tc));g.font="bold 12px system-ui,sans-serif";const bw=Math.max(g.measureText(l1).width,g.measureText(l2).width)+14,bx=cx+14+bw>W?cx-14-bw:cx+14,by=Math.max(cy-20,4);
+ const l1=v.toFixed(2)+" ft",l2=fmtT(new Date(tc));g.font="bold 12px system-ui,sans-serif";const bw=Math.max(g.measureText(l1).width,g.measureText(l2).width)+14,hit=(x,y)=>x<2||x+bw>W-2||LR.some(r=>x<r[0]+r[2]&&x+bw>r[0]&&y<r[1]+r[3]&&y+36>r[1]);
+ let by=Math.max(cy-20,4),bx=cx+14;if(hit(bx,by)){if(!hit(cx-14-bw,by))bx=cx-14-bw;else{by=Math.min(cy+14,H-80);bx=hit(cx+14,by)&&!hit(cx-14-bw,by)?cx-14-bw:(cx+14+bw>W-2?cx-14-bw:cx+14)}}
  g.fillStyle="rgba(40,60,75,.88)";g.beginPath();g.roundRect?g.roundRect(bx,by,bw,36,7):g.rect(bx,by,bw,36);g.fill();g.fillStyle="#e9f37a";g.textAlign="left";g.fillText(l1,bx+7,by+15);g.fillText(l2,bx+7,by+30);
  // readout
  const d=new Date(tc),nh=TC.hl.find(x=>x[0]>tc),dk=d.toDateString();

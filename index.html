@@ -45,8 +45,8 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 .tc .moon{text-align:center}.tc .moon .e{font-size:46px;line-height:1}.tc .ht{text-align:center}.tc .ht .v{font-size:44px;font-weight:300;line-height:1}
 .tc .sm{font-size:13px;color:#a9c3d6;letter-spacing:.03em}.tc .dt{font-size:15px;font-weight:600;margin-top:4px}
 .tc canvas{display:block;width:100%;height:270px;touch-action:pan-y;cursor:grab}.tc canvas:active{cursor:grabbing}
-.tc .nowb{position:absolute;right:10px;bottom:10px;padding:5px 12px;font-size:13px;border-radius:99px}
-.tc .note{padding:0 12px 2px;text-align:center;font-size:11px;color:#a9c3d6}
+.tc .tcbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px 8px}.tc .nowb{padding:5px 14px;font-size:13px;border-radius:99px;flex:none}
+.tc .note{font-size:11px;color:#a9c3d6}
 .locked{text-align:center;padding:20px}
 #viewTitle{font-size:13px;color:var(--mut)}
 </style>
@@ -102,7 +102,10 @@ const fmtD=d=>d.toLocaleDateString([],{weekday:"short",month:"short",day:"numeri
 const hpa2in=h=>h*0.0295300;
 const WMO={0:"Clear",1:"Mostly clear",2:"Partly cloudy",3:"Overcast",45:"Fog",48:"Freezing fog",51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",61:"Light rain",63:"Rain",65:"Heavy rain",66:"Freezing rain",67:"Freezing rain",71:"Light snow",73:"Snow",75:"Heavy snow",77:"Snow grains",80:"Showers",81:"Showers",82:"Heavy showers",85:"Snow showers",86:"Snow showers",95:"Thunderstorm",96:"T-storm w/ hail",99:"T-storm w/ hail"};
 const WICON=c=>c==0||c==1?"☀️":c==2?"⛅":c==3?"☁️":c<50?"🌫️":c<70||(c>=80&&c<83)?"🌧️":c<90?"🌨️":"⛈️";
-async function getJSON(url,opt){const r=await fetch(url,opt);if(!r.ok)throw new Error("HTTP "+r.status);return r.json()}
+// fetch with timeout + one retry: a hung request (seen with Open-Meteo) must not leave a section blank forever
+async function getJSON(url,opt={},tries=2,ms=12000){for(let k=0;k<tries;k++){const ac=new AbortController(),tm=setTimeout(()=>ac.abort(),ms);
+ try{const r=await fetch(url,{...opt,signal:ac.signal});clearTimeout(tm);if(!r.ok){if((r.status>=500||r.status==429)&&k<tries-1){await new Promise(z=>setTimeout(z,800));continue}throw new Error("HTTP "+r.status)}return await r.json()}
+ catch(e){clearTimeout(tm);if(k==tries-1||/^HTTP 4/.test(e.message))throw e.name=="AbortError"?new Error("request timed out"):e;await new Promise(z=>setTimeout(z,800))}}}
 function fail(id,title,e){$(id).innerHTML=`<h2>${title}</h2><div class="err">Couldn't load: ${esc(e.message||e)}</div>`}
 // Open-Meteo times are local to the spot; parse as "spot local" by using utc_offset
 function omTime(s,off){return new Date(Date.parse(s+"Z")-off*1000)}
@@ -160,7 +163,7 @@ $("refresh").onclick=()=>S.loc&&loadAll();
 /* ---------- data ---------- */
 function loadAll(){S.tideP=null;S.curr=null;S.wt=null;S.buoy={};S.marine=null;renderSummary();const{lat,lon}=S.loc;$("updated").textContent="Updated "+fmtT(new Date());
  loadWeather(lat,lon);loadMarine(lat,lon);loadTides(lat,lon);loadAlerts(lat,lon);renderSky(lat,lon);loadBuoy(lat,lon);loadCurrents(lat,lon);loadWaterTemp(lat,lon)}
-async function loadWeather(lat,lon){
+async function loadWeather(lat,lon){S.wxErr=0;
  try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation&hourly=temperature_2m,precipitation_probability,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&past_days=1&forecast_days=7`;
   const j=await getJSON(u),off=j.utc_offset_seconds,H=j.hourly,c=j.current,now=Date.now();S.wx=j;
   const times=H.time.map(t=>omTime(t,off));let ni=times.findIndex(t=>t.getTime()>now-36e5/2);if(ni<0)ni=times.length-1;
@@ -183,7 +186,7 @@ async function loadWeather(lat,lon){
   const D=j.daily;$("forecast").innerHTML=`<h2>Weather forecast</h2><div class="hours" style="margin-bottom:8px">${hrs.slice(0,24).map(i=>`<div class="h"><div class="mut">${fmtH(times[i])}</div><div>${WICON(H.weather_code[i])}</div><b>${Math.round(H.temperature_2m[i])}°</b><div class="mut">💧${H.precipitation_probability[i]??"–"}%</div><div class="mut">☁${H.cloud_cover[i]}%</div></div>`).join("")}</div>
    <table>${D.time.slice(1).map((t,k)=>{const i=k+1;return`<tr><td>${fmtD(new Date(t+"T12:00"))}</td><td>${WICON(D.weather_code[i])} ${WMO[D.weather_code[i]]||""}</td><td>${Math.round(D.temperature_2m_max[i])}°/${Math.round(D.temperature_2m_min[i])}°</td><td>💧${D.precipitation_probability_max[i]??"–"}%</td><td>${arrow(D.wind_direction_10m_dominant[i])}${Math.round(D.wind_speed_10m_max[i])}<span class="mut">g${Math.round(D.wind_gusts_10m_max[i])}</span></td></tr>`}).join("")}</table>`;
  $("now").insertAdjacentHTML("beforeend",`<div class="wtslot mut" style="margin-top:6px"></div>`);renderWT();renderSummary();renderGo();
- }catch(e){["now","wind","pressure","forecast"].forEach((id,k)=>fail(id,["Now","Wind","Barometric pressure","Weather forecast"][k],e))}}
+ }catch(e){S.wxErr=1;renderSummary();["now","wind","pressure","forecast"].forEach((id,k)=>fail(id,["Now","Wind","Barometric pressure","Weather forecast"][k],e))}}
 async function loadMarine(lat,lon){
  try{const j=await getJSON(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period&length_unit=imperial&timezone=auto&forecast_days=3`);
   const c=j.current||{},H=j.hourly,off=j.utc_offset_seconds;S.marine=j;
@@ -232,7 +235,7 @@ async function loadTides(lat,lon){
   $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">Station ${id}, ${near.d.toFixed(1)} mi away · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
    <div class="tc" id="tc"><div class="ro"><div class="moon"><div class="e" id="tcMoonE"></div><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div></div>
     <div class="ht"><div class="v"><span id="tcH">–</span><span style="font-size:16px"> ft</span></div><div class="dt" id="tcT"></div><div class="sm" id="tcNext"></div></div></div>
-    <canvas id="tcCanvas"></canvas>${note?`<div class="note">${note}</div>`:""}<button class="nowb" id="tcNow">Now</button></div>
+    <canvas id="tcCanvas"></canvas><div class="tcbar"><span class="note">${note||""}</span><button class="nowb" id="tcNow">Now</button></div></div>
    <div style="font-size:19px;font-weight:700;margin:10px 0 6px">${stage||"—"}</div><div id="wlobs"></div>
    <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Daily tide list</summary>${days}</details>
    <a class="mut" target="_blank" href="https://tidesandcurrents.noaa.gov/noaatidepredictions.html?id=${id}">NOAA page ↗</a>`;
@@ -341,7 +344,7 @@ function initTideChart(P,curve,lat,lon){const cv=$("tcCanvas");if(!cv)return;
  $("tcNow").onclick=()=>snapTC(Date.now());
  if(!TC.ro){TC.ro=new ResizeObserver(()=>drawTC());}TC.ro.disconnect();TC.ro.observe(cv);drawTC()}
 const TC_SVG=(()=>{const arr=(up,c)=>up?`<path d="M18 13V1.8M14 5.8L18 1.8L22 5.8" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`:`<path d="M18 1V12.2M14 8.2L18 12.2L22 8.2" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
- const sun=(up,c)=>`<path d="M2.5 11A4.5 4.5 0 0 1 11.5 11Z" fill="${c}"/><path d="M0.8 11.8H13.2" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>${arr(up,c)}`;
+ const sun=(up,c)=>`<defs><radialGradient id="h"><stop offset="0" stop-color="${c}" stop-opacity=".9"/><stop offset=".5" stop-color="${c}" stop-opacity=".4"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient></defs><circle cx="7" cy="10.5" r="9" fill="url(#h)"/><path d="M2.5 11A4.5 4.5 0 0 1 11.5 11Z" fill="${c}"/><path d="M0.8 11.8H13.2" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>${arr(up,c)}`;
  const moon=(up,c)=>`<path d="M8 1.5A5.5 5.5 0 0 0 8 12.5A3.4 5.5 0 0 1 8 1.5Z" fill="${c}"/>${arr(up,c)}`;
  return{sr:sun(1,"#FFD54A"),ss:sun(0,"#FF7043"),mr:moon(1,"#FFFFFF"),ms:moon(0,"#9AA3AD")}})();
 const TC_IMG={};function tcIcon(k){if(!TC_IMG[k]){const im=new Image();im.onload=()=>drawTC();im.src="data:image/svg+xml;charset=utf-8,"+encodeURIComponent(`<svg xmlns="http://www.w3.org/2000/svg" width="69" height="42" viewBox="0 0 23 14">${TC_SVG[k]}</svg>`);TC_IMG[k]=im}return TC_IMG[k]}
@@ -366,10 +369,9 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  g.beginPath();for(let x=-2;x<=W+2;x+=2){const y=Y(tideAt(T(x)));x<=-2?g.moveTo(x,y):g.lineTo(x,y)}g.strokeStyle="#9fe0ff";g.lineWidth=2;g.stroke();
  g.font="11px system-ui,sans-serif";g.textAlign="center";
  // hour ticks + day lines
- const nbE=$("tcNow"),cr=cv.getBoundingClientRect(),nr=nbE?nbE.getBoundingClientRect():{left:0,right:0,top:0,bottom:0},nbL=nr.left-cr.left,nbR=nr.right-cr.left,nbT=nr.top-cr.top,nbB=nr.bottom-cr.top;// skip hour labels hidden by the Now button
  const h0=new Date(ta);h0.setMinutes(0,0,0);for(let t=+h0;t<tb;t+=36e5){const d=new Date(t),x=X(t);
   if(d.getHours()==0){g.strokeStyle="rgba(255,255,255,.35)";g.setLineDash([]);g.beginPath();g.moveTo(x,top-20);g.lineTo(x,H);g.stroke()}
-  if(d.getHours()%3==0&&!(x+16>nbL&&x-16<nbR&&H-28<nbB&&H>nbT)){g.fillStyle="rgba(255,255,255,.75)";g.fillRect(x-.5,H-12,1,6);g.fillText(d.toLocaleTimeString([],{hour:"numeric"}).replace(" ","").toLowerCase(),x,H-16)}}
+  if(d.getHours()%3==0){const s=d.toLocaleTimeString([],{hour:"numeric"}).replace(" ","").toLowerCase(),hw=g.measureText(s).width/2;g.fillStyle="rgba(255,255,255,.75)";g.fillRect(x-.5,H-12,1,6);g.fillText(s,Math.max(hw+2,Math.min(W-hw-2,x)),H-16)}}
  // day label pinned while day visible
  const dl=new Date(ta);dl.setHours(0,0,0,0);for(let t=+dl;t<tb;){const n=new Date(t);n.setDate(n.getDate()+1);g.font="bold 12px system-ui,sans-serif";const lab=new Date(t).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"}).toUpperCase(),tw=g.measureText(lab).width,x=Math.max(X(t)+4,4);
   if(x+tw+6<X(+n)&&x+tw<=W-4){g.textAlign="left";g.fillStyle="#fff";g.fillText(lab,x,top-24)}t=+n}
@@ -433,7 +435,7 @@ function curAt(t){const E=S.curr?.E;if(!E)return null;const i=E.findIndex(e=>e.t
 function renderSummary(){const p=[],now=Date.now(),P=S.tideP;
  if(P){const nx=P.find(x=>x.t>now);if(nx){const d=fmtDur(nx.t-now);p.push(`${nx.type=="H"?"Rising":"Falling"} tide, ${d} to ${nx.type=="H"?"high":"low"}`)}}
  if(S.pTrend)p.push("pressure "+({"Rising fast":"rising fast","Rising":"rising","Steady":"steady","Falling":"dropping","Falling fast":"dropping fast"}[S.pTrend]||S.pTrend.toLowerCase()));
- if(S.cur.wind&&S.wx){const c=S.wx.current;p.push(`wind ${card(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)} mph`)}
+ if(S.wxErr)p.push("weather didn't load, tap ⟳");if(S.cur.wind&&S.wx){const c=S.wx.current;p.push(`wind ${card(c.wind_direction_10m)} ${Math.round(c.wind_speed_10m)} mph`)}
  if(S.wt)p.push(`water ${Math.round(S.wt.f)}°F`);
  $("summary").textContent=p.length?"Right now: "+p.join(" · "):""}
 

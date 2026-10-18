@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.10 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.11 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -380,8 +380,8 @@ function show(v){let V=VIEWS.find(x=>x[0]==v)||VIEWS[0];if(V[3]&&!LS.get("extras
  lk.style.display=ok?"none":"block";lk.innerHTML=`<h2>${esc(V[1])}</h2><div class="mut">This feature is part of Brinecast Pro.</div>`;
  S.view=V[0];$("viewTitle").textContent="Brinecast · "+V[1];LS.set("view",V[0]);renderMenu();closeMenu();scrollTo(0,0)}
 function renderMenu(){const ex=LS.get("extras",true),it=x=>`<a data-v="${x[0]}" class="${x[0]==S.view?"on":""}">${esc(x[1])}${can(x[0])?"":" 🔒"}</a>`;
- $("menu").innerHTML=VIEWS.filter(x=>!x[3]).map(it).join("")+`<div class="sep">Fishing extras</div>`+(ex?VIEWS.filter(x=>x[3]).map(it).join(""):"")+`<label><input type="checkbox" id="exTog" ${ex?"checked":""}> Show fishing extras</label>`;
- $("exTog").onchange=e=>{LS.set("extras",e.target.checked);if(!e.target.checked&&VIEWS.find(x=>x[0]==S.view)[3])show("weather");else renderMenu()}}
+ $("menu").innerHTML=VIEWS.filter(x=>!x[3]).map(it).join("")+`<div class="sep">Fishing extras</div>`+(ex?VIEWS.filter(x=>x[3]).map(it).join(""):"")+`<label><input type="checkbox" id="exTog" ${ex?"checked":""}> Show fishing extras</label><label><input type="checkbox" id="slTog" ${LS.get("seaLife",true)?"checked":""}> Sea life on tide chart</label>`;
+ $("slTog").onchange=e=>{LS.set("seaLife",e.target.checked);CRE.forEach(c=>Object.assign(c,{ox:0,oy:0,vx:0,vy:0}));TC.creAct=0;drawTC()};$("exTog").onchange=e=>{LS.set("extras",e.target.checked);if(!e.target.checked&&VIEWS.find(x=>x[0]==S.view)[3])show("weather");else renderMenu()}}
 function closeMenu(){$("menu").classList.remove("open");$("menuBtn").setAttribute("aria-expanded","false")}
 $("menuBtn").onclick=e=>{e.stopPropagation();const o=$("menu").classList.toggle("open");$("menuBtn").setAttribute("aria-expanded",o)};
 $("menu").onclick=e=>{e.stopPropagation();if(e.target.closest("label"))return;const a=e.target.closest("a[data-v]");if(a)show(a.dataset.v)};
@@ -426,11 +426,11 @@ function initTideChart(P,curve,lat,lon){const cv=$("tcCanvas");if(!cv)return;moo
  const d=new Date(TC.t0);d.setHours(0,0,0,0);for(;+d<TC.t1;d.setDate(d.getDate()+1)){const s=dayEvents(new Date(d),lat,lon,false),m=dayEvents(new Date(d),lat,lon,true);
   if(s.rise)TC.ev.push([+s.rise,"sr"]);if(s.set)TC.ev.push([+s.set,"ss"]);if(m.rise)TC.ev.push([+m.rise,"mr"]);if(m.set)TC.ev.push([+m.set,"ms"])}
  let drag=null,vel=0,last=0;
- cv.onpointerdown=e=>{TC.snapId=(TC.snapId||0)+1;TC.snapTo=null;drag={x:e.clientX,tc:TC.tc};last=e.clientX;vel=0;TC.anim=null;cv.setPointerCapture(e.pointerId)};
- cv.onpointermove=e=>{if(!drag)return;vel=e.clientX-last;last=e.clientX;TC.tc=clampT(drag.tc-(e.clientX-drag.x)/TC.pxh*36e5);drawTC()};
- cv.onpointerup=cv.onpointercancel=()=>{if(!drag)return;drag=null;let v=vel;const step=()=>{if(Math.abs(v)<0.3||drag)return;v*=0.92;TC.tc=clampT(TC.tc-v/TC.pxh*36e5);drawTC();requestAnimationFrame(step)};requestAnimationFrame(step)};
+ cv.onpointerdown=e=>{creTouch(cv,e);TC.snapId=(TC.snapId||0)+1;TC.snapTo=null;drag={x:e.clientX,tc:TC.tc};last=e.clientX;vel=0;TC.anim=null;cv.setPointerCapture(e.pointerId)};
+ cv.onpointermove=e=>{if(!drag)return;creTouch(cv,e);vel=e.clientX-last;last=e.clientX;TC.tc=clampT(drag.tc-(e.clientX-drag.x)/TC.pxh*36e5);drawTC()};
+ cv.onpointerup=cv.onpointercancel=cv.onlostpointercapture=()=>{creRelease();if(!drag)return;drag=null;let v=vel;const step=()=>{if(Math.abs(v)<0.3||drag)return;v*=0.92;TC.tc=clampT(TC.tc-v/TC.pxh*36e5);drawTC();requestAnimationFrame(step)};requestAnimationFrame(step)};
  $("tcNow").onclick=()=>snapTC(Date.now());$("tcPrevDay").onclick=()=>snapTC(clampT(addLocalDays(TC.snapTo??TC.tc,-1)));$("tcNextDay").onclick=()=>snapTC(clampT(addLocalDays(TC.snapTo??TC.tc,1)));
- if(!TC.ro){TC.ro=new ResizeObserver(()=>drawTC());}TC.ro.disconnect();TC.ro.observe(cv);drawTC()}
+ if(!TC.ro){TC.ro=new ResizeObserver(()=>{drawTC();tcKick()});TC.io=new IntersectionObserver(es=>{for(const e of es)if(e.target==TC.cv)TC.inView=e.isIntersecting;tcKick()})}TC.ro.disconnect();TC.ro.observe(cv);TC.io.disconnect();TC.inView=false;TC.io.observe(cv);drawTC()}
 const TC_SVG=(()=>{const arr=(up,c)=>up?`<path d="M18 13V1.8M14 5.8L18 1.8L22 5.8" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`:`<path d="M18 1V12.2M14 8.2L18 12.2L22 8.2" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
  const sun=(up,c)=>`<defs><radialGradient id="h"><stop offset="0" stop-color="${c}" stop-opacity=".9"/><stop offset=".5" stop-color="${c}" stop-opacity=".4"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient></defs><circle cx="7" cy="10.5" r="9" fill="url(#h)"/><path d="M2.5 11A4.5 4.5 0 0 1 11.5 11Z" fill="${c}"/><path d="M0.8 11.8H13.2" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>${arr(up,c)}`;
  const moon=(up,c)=>`<path d="M8 1.5A5.5 5.5 0 0 0 8 12.5A3.4 5.5 0 0 1 8 1.5Z" fill="${c}"/>${arr(up,c)}`;
@@ -503,33 +503,67 @@ let moonLast="";function drawMoon(cv,f,waxing,cc,nofc){if(!cv)return;const at=cc
 function tcWx(t){const w=TC.wxMap&&TC.wxMap.get(Math.floor(t/36e5)*36e5);return w&&w.tf!=null?` · ${WICON(w.code)} ${Math.round(w.tf)}°`:""}
 let tcRaf=0;function drawTC(){if(!tcRaf)tcRaf=requestAnimationFrame(()=>{tcRaf=0;paintTC()})}
 // gentle water animation (~24 fps) only while the chart is on screen; off with prefers-reduced-motion
-const RM=matchMedia("(prefers-reduced-motion: reduce)");let tcLast=0;
-function tcLoop(n){requestAnimationFrame(tcLoop);if(RM.matches){TC.anim0=0;return}if(!TC.cv||!TC.cv.isConnected||!TC.cv.offsetParent||document.hidden)return;
- if(!TC.anim0)TC.anim0=n;if(n-tcLast<41)return;tcLast=n;paintTC()}
-requestAnimationFrame(tcLoop);RM.addEventListener?.("change",()=>drawTC());
+const RM=matchMedia("(prefers-reduced-motion: reduce)");let tcLast=0,tcLoopOn=0;
+// battery: the rAF loop only exists while the chart is on screen (IntersectionObserver), its view is shown and the page is visible; otherwise no frames run at all
+const tcRun=()=>!RM.matches&&TC.cv&&TC.cv.isConnected&&TC.cv.offsetParent&&!document.hidden&&TC.inView;
+function tcKick(){if(!tcLoopOn&&tcRun()){tcLoopOn=1;requestAnimationFrame(tcLoop)}}
+function tcLoop(n){if(!tcRun()){tcLoopOn=0;if(RM.matches)TC.anim0=0;return}requestAnimationFrame(tcLoop);TC.frames=(TC.frames||0)+1;
+ if(!TC.anim0)TC.anim0=n;if(n-tcLast<(TC.creAct?15:41))return;tcLast=n;paintTC()}
+document.addEventListener("visibilitychange",()=>{if(document.hidden)creRelease();tcKick()});RM.addEventListener?.("change",()=>{drawTC();tcKick()});
 // sea creatures under the tide curve: purely decorative silhouettes in screen space, drawn inside the water clip (behind the line, labels, cursor and readout).
 // They only read the drawn surface sy() to stay submerged; they never touch tide/weather data. Static (at=0) with prefers-reduced-motion.
-const CRE=[{k:"school",v:8,x0:.12,d:.3,w:16,h:9,c:"rgba(205,248,255,.2)"},{k:"fish",v:-11,x0:.68,d:.55,w:9,h:5,c:"rgba(0,48,66,.3)"},
- {k:"turtle",v:5,x0:.42,d:.45,w:14,h:8,c:"rgba(0,52,70,.32)"},{k:"jelly",v:-2.2,x0:.86,d:.25,w:7,h:14,c:"rgba(210,240,255,.22)"},{k:"ray",v:-4.5,x0:.27,d:.92,w:18,h:6,c:"rgba(0,40,58,.3)"}];
+const CRE=[{k:"school",v:8,x0:.12,d:.3,w:16,h:9,c:"rgba(205,248,255,.2)",A:950,vm:270},{k:"fish",v:-11,x0:.68,d:.55,w:9,h:5,c:"rgba(0,48,66,.3)",A:1150,vm:330},
+ {k:"shark",v:5.5,x0:.42,d:.45,w:15,h:8,c:"rgba(0,52,70,.32)",A:0,vm:170},{k:"jelly",v:-2.2,x0:.86,d:.25,w:7,h:14,c:"rgba(210,240,255,.22)",A:520,vm:150},{k:"ray",v:-4.5,x0:.27,d:.92,w:18,h:6,c:"rgba(0,40,58,.3)",A:700,vm:220}];
+CRE.forEach(c=>Object.assign(c,{ox:0,oy:0,vx:0,vy:0,ph:0,f:c.v<0?-1:1}));
+// flee/chase: while a finger/mouse is down on the chart the shark chases it and every other creature swims away from it and from the shark (force falls off with distance); ~0.7 s after release they ease back to their paths.
+// Display-only state in screen px; never reads or writes tide data. Disabled with reduced motion.
 function creFish(g,t,s){const w=Math.sin(t*6)*1.1;g.beginPath();g.moveTo(8*s,0);g.quadraticCurveTo(2.5*s,-4.4*s,-4*s,-1.1*s);g.lineTo(-8.2*s,(-3.8+w)*s);g.lineTo(-6.6*s,w*.4*s);g.lineTo(-8.2*s,(3.8+w)*s);g.lineTo(-4*s,1.1*s);g.quadraticCurveTo(2.5*s,4.4*s,8*s,0);g.fill()}
-function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5;
- for(let i=0;i<CRE.length;i++){const c=CRE[i],x=((c.x0*span+c.v*at)%span+span)%span-M;
+function creTouch(cv,e){if(RM.matches||!LS.get("seaLife",true))return;const r=cv.getBoundingClientRect();TC.touch={x:e.clientX-r.left,y:e.clientY-r.top};TC.relT=0;TC.creAct=1;tcKick()}
+function creRelease(){if(TC.touch){TC.touch=null;TC.relT=performance.now()}}
+function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
+ if(T&&c.k=="shark"){// the shark chases the finger: seek with arrival, then a slow circle instead of jitter (kept underwater by the y clamp in tcCreatures)
+  const dx=T.x-px,dy=T.y-py,d=Math.hypot(dx,dy)||1,ds=Math.min(c.vm,c.vm*d/60),cr=d<35?30*(1-d/35)+18:0,cw=c.cw||(c.cw=px<T.x?1:-1);
+  const tx=dx/d*ds-dy/d*cr*cw,ty=dy/d*ds+dx/d*cr*cw,k=Math.min(1,dt*3.2);c.vx+=(tx-c.vx)*k;c.vy+=(ty-c.vy)*k}
+ else if(T){let ax=0,ay=0;const away=(sx,sy2,A,R)=>{let dx=px-sx,dy=py-sy2,d=Math.hypot(dx,dy);if(d<1){dx=px<W/2?-1:1;dy=0;d=1}const a=A*(Math.exp(-d/R)+.1);ax+=dx/d*a;ay+=dy/d*a};
+  away(T.x,T.y,c.A,120);const P=TC.sharkP;if(P)away(P.x,P.y,c.A*.8,60);// keep clear of the chasing shark too
+  let a=1;if(c.k=="jelly")a=.35+1.3*Math.max(0,Math.sin(c.ph*2.1));// jet on each pulse
+  c.vx+=ax*a*dt;c.vy+=ay*a*dt*.6;const sp=Math.hypot(c.vx,c.vy);if(sp>c.vm){c.vx*=c.vm/sp;c.vy*=c.vm/sp}
+  const dr=Math.exp(-1.6*dt);c.vx*=dr;c.vy*=dr}
+ else if(now-TC.relT<500){c.cw=0;const dr=Math.exp(-2.5*dt);c.vx*=dr;c.vy*=dr}// short beat: coast to a stop
+ else{const k=Math.min(1,dt*5);let tx=-c.ox*3.5,ty=-c.oy*3.5;const ts=Math.hypot(tx,ty);if(ts>260){tx*=260/ts;ty*=260/ts}c.vx+=(tx-c.vx)*k;c.vy+=(ty-c.vy)*k}
+ c.ox+=c.vx*dt;c.oy+=c.vy*dt;c.ox=Math.max(-W*.7,Math.min(W*.7,c.ox));c.oy=Math.max(-160,Math.min(160,c.oy))}
+function tcCreatures(g,W,H,sy,at){if(!LS.get("seaLife",true)){TC.creAct=0;TC.creDbg=[];return}const M=44,span=W+2*M,bt=H-5,now=performance.now(),rm=RM.matches||!TC.anim0,dt=Math.min(.05,Math.max(0,(now-(TC.creT||now))/1000));TC.creT=now;
+ let act=!!TC.touch;TC.creDbg=[];
+ for(let i=0;i<CRE.length;i++){const c=CRE[i],xn=((c.x0*span+c.v*at)%span+span)%span-M;
+  if(rm){c.ox=c.oy=c.vx=c.vy=c.ph=0;c.f=c.v<0?-1:1}
+  const x0=xn+c.ox,yy0=(()=>{const s=Math.max(sy(x0-c.w),sy(x0),sy(x0+c.w));return c.ly!=null?c.ly:s+(bt-s)*c.d+c.oy})();// steer from where it was actually drawn
+  if(!rm&&dt>0)creStep(c,i,x0,yy0,dt,W,now);
+  const x=xn+c.ox,vxt=c.v+c.vx,sp=Math.hypot(c.vx,c.vy);if(!rm){if(Math.abs(vxt)>3)c.f=vxt<0?-1:1;c.ph+=dt*(1+sp/(c.k=="jelly"?22:45))}
+  if(!rm&&(Math.abs(c.ox)>1.5||Math.abs(c.oy)>1.5||sp>4))act=true;else if(!TC.touch){c.ox=c.oy=c.vx=c.vy=0}
+  if(x<-M||x>W+M){c.ly=null;TC.creDbg.push({k:c.k,x,y:null,top:null});continue}
   const s0=Math.max(sy(x-c.w),sy(x),sy(x+c.w)),av=bt-s0,sc=Math.max(.55,Math.min(1,av/(2*c.h+18))),hh=c.h*sc,lo=s0+hh+3,hi=bt-hh;
-  const al=Math.max(0,Math.min(1,(hi-lo+8)/8));if(al<=0)continue;// no room at this x (very low water): fade out rather than poke out
-  let y=lo+Math.max(0,hi-lo)*c.d+Math.sin(at*(.7+i*.13)+i*2.1)*Math.min(c.k=="jelly"?5:2.5,Math.max(0,hi-lo)/2);y=Math.max(Math.min(y,hi),Math.min(lo,hi));
-  g.save();g.globalAlpha=al;g.translate(x,y);g.scale(c.v<0&&c.k!="jelly"?-sc:sc,sc);g.fillStyle=g.strokeStyle=c.c;const t=at+i*1.7;
+  const al=Math.max(0,Math.min(1,(hi-lo+8)/8));if(al<=0){c.ly=null;TC.creDbg.push({k:c.k,x,y:null,top:null});continue}// no room at this x (very low water): fade out rather than poke out
+  let y=lo+Math.max(0,hi-lo)*c.d+c.oy+Math.sin(at*(.7+i*.13)+i*2.1)*Math.min(c.k=="jelly"?5:2.5,Math.max(0,hi-lo)/2);const yc=Math.max(Math.min(y,hi),Math.min(lo,hi));
+  if(yc!=y&&!rm){c.oy+=yc-y;c.vy=0}y=yc;c.ly=rm?null:y;// stay below the surface and above the bed
+  const ang=c.k=="jelly"||rm?0:Math.max(-.4,Math.min(.4,Math.atan2(c.vy,Math.abs(vxt)+20)));
+  const B=TC.bubR,ov=B&&x+c.w*1.4*sc>B[0]&&x-c.w*1.4*sc<B[0]+B[2]&&y+hh+4>B[1]&&y-hh-4<B[1]+B[3],ft=ov?.4:1;c.fa=rm||c.fa==null?ft:c.fa+(ft-c.fa)*Math.min(1,dt*10);
+  TC.creDbg.push({k:c.k,x,y,top:y-hh,surf:s0,al,fa:c.fa,ov});if(c.k=="shark")TC.sharkP={x,y};
+  g.save();g.globalAlpha=al*c.fa;g.translate(x,y);g.scale(c.k!="jelly"?c.f*sc:sc,sc);if(ang)g.rotate(ang);g.fillStyle=g.strokeStyle=c.c;const t=c.ph+i*1.7;
   if(c.k=="fish")creFish(g,t,1);
   else if(c.k=="school"){for(const [dx,dy,p] of [[6,0,0],[-6,-5,1.3],[-4,6,2.6]]){g.save();g.translate(dx,dy+Math.sin(t*1.1+p)*1.2);creFish(g,t+p,.62);g.restore()}}
-  else if(c.k=="turtle"){const f=Math.sin(t*1.5)*.45;
-   for(const [px,py,r0,len] of [[4,-3.5,-.9,6],[4,3.5,.9,6],[-6,-3,-2.3,3.5],[-6,3,2.3,3.5]]){g.save();g.translate(px,py);g.rotate(r0+(px>0?(py<0?f:-f):0));g.beginPath();g.ellipse(-len*.45,0,len,1.9,0,0,7);g.fill();g.restore()}
-   g.beginPath();g.ellipse(0,0,9,5.6,0,0,7);g.fill();g.beginPath();g.ellipse(11,-.4,3.2,2.3,0,0,7);g.fill();
-   g.lineWidth=.8;g.strokeStyle="rgba(200,245,255,.14)";g.beginPath();g.ellipse(0,0,5.6,3.4,0,0,7);g.moveTo(-5.6,0);g.lineTo(5.6,0);g.stroke()}
+  else if(c.k=="shark"){const sw=Math.sin(t*2.2),tl=1-.14*Math.abs(sw),ty=sw*.7;// side profile, facing +x; tail sweep shows as the caudal fin foreshortening
+   g.beginPath();g.moveTo(13.5,.6);g.quadraticCurveTo(10,-3.2,3,-3.7);g.lineTo(-.6,-9.6);g.quadraticCurveTo(-1.6,-5.4,-3.6,-3.3);g.quadraticCurveTo(-7.5,-2.2,-10,-1.1);
+   g.lineTo(-10-5.4*tl,-7.4+ty);g.quadraticCurveTo(-11.6*tl-1,-2.6+ty*.5,-11.4,0+ty*.3);g.lineTo(-10-3.8*tl,4.6+ty);g.lineTo(-10,1.2);
+   g.quadraticCurveTo(-5,3,-.5,3.6);g.lineTo(-3.6,7.6);g.lineTo(2.6,3.7);g.quadraticCurveTo(9,3.4,13.5,.6);g.closePath();g.fill();
+   g.beginPath();g.moveTo(-6.5,-2.4);g.lineTo(-7.6,-4.4);g.lineTo(-8.2,-2);g.fill();// second dorsal
+   g.lineWidth=.7;g.strokeStyle="rgba(200,245,255,.16)";g.beginPath();for(let k=0;k<3;k++){g.moveTo(6.8-k*1.2,-1.4);g.quadraticCurveTo(6.2-k*1.2,.2,6.7-k*1.2,1.8)}g.stroke()}
   else if(c.k=="jelly"){const p=.5+.5*Math.sin(t*2.1),bw=6*(1+.1*p),bh=5.4*(1-.12*p);
    g.beginPath();g.ellipse(0,0,bw,bh,0,Math.PI,0);for(let k=0;k<=4;k++){const xx=bw-k*bw/2;g.quadraticCurveTo(xx+bw/8,1.8,xx-bw/4,.6)}g.closePath();g.fill();
    g.lineWidth=.9;g.beginPath();for(let k=0;k<4;k++){const tx=-3.6+k*2.4;g.moveTo(tx,1);for(let j=1;j<=4;j++)g.lineTo(tx+Math.sin(t*1.6+k+j*.9)*1.1,1+j*(3-.4*p))}g.stroke()}
   else if(c.k=="ray"){const w=1+.14*Math.sin(t*1.3);g.beginPath();g.moveTo(9,0);g.quadraticCurveTo(3,-1.6,-1,-5.5*w);g.quadraticCurveTo(-3,-1.6,-7,0);g.quadraticCurveTo(-3,1.6,-1,5.5*w);g.quadraticCurveTo(3,1.6,9,0);g.fill();
    g.lineWidth=.9;g.beginPath();g.moveTo(-7,0);g.quadraticCurveTo(-12,Math.sin(t*1.7)*1.2,-19,Math.sin(t*1.7+1)*1.5);g.stroke()}
-  g.restore()}}
+  g.restore()}
+ TC.creAct=act?1:0}
 function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(!W)return;
  if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
  const cx=W/2,tc=TC.tc,pxh=TC.pxh,X=t=>cx+(t-tc)/36e5*pxh,T=x=>tc+(x-cx)/pxh*36e5,top=78,bot=H-34,pad=(TC.vmax-TC.vmin)*0.08,
@@ -594,7 +628,7 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  g.beginPath();g.arc(cx,cy,9,0,7);g.fillStyle="#e9f37a";g.fill();
  const l1=v.toFixed(2)+" ft",l2=fmtT(new Date(tc));g.font="bold 12px system-ui,sans-serif";const bw=Math.max(g.measureText(l1).width,g.measureText(l2).width)+14,hit=(x,y)=>x<2||x+bw>W-2||LR.some(r=>x<r[0]+r[2]&&x+bw>r[0]&&y<r[1]+r[3]&&y+36>r[1]);
  let by=Math.max(cy-20,4),bx=cx+14;if(hit(bx,by)){if(!hit(cx-14-bw,by))bx=cx-14-bw;else{by=Math.min(cy+14,H-80);bx=hit(cx+14,by)&&!hit(cx-14-bw,by)?cx-14-bw:(cx+14+bw>W-2?cx-14-bw:cx+14)}}
- g.fillStyle="rgba(40,60,75,.88)";g.beginPath();g.roundRect?g.roundRect(bx,by,bw,36,7):g.rect(bx,by,bw,36);g.fill();g.fillStyle="#e9f37a";g.textAlign="left";g.fillText(l1,bx+7,by+15);g.fillText(l2,bx+7,by+30);
+ TC.bubR=[bx,by,bw,36];g.fillStyle="rgba(40,60,75,.88)";g.beginPath();g.roundRect?g.roundRect(bx,by,bw,36,7):g.rect(bx,by,bw,36);g.fill();g.fillStyle="#e9f37a";g.textAlign="left";g.fillText(l1,bx+7,by+15);g.fillText(l2,bx+7,by+30);
  // readout
  const d=new Date(tc),nh=TC.hl.find(x=>x[0]>tc),dk=d.toDateString();
  const il=moonIllum(d),cc=moonClouds(tc),nofc=cc==null&&!!TC.wxMap;drawMoon($("tcMoonC"),il.fraction,il.phase<.5,cc,nofc);$("tcMoonC").title=nofc?"Past the cloud forecast: shown without clouds, dimmed":"";

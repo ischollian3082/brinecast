@@ -41,9 +41,9 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 .lim{display:grid;grid-template-columns:1fr 80px;gap:6px;align-items:center;font-size:14px}.lim input{width:80px;padding:6px 8px}
 .tabs button{flex:1}.tabs button.on{background:var(--acc);color:#001018}
 .tc{background:#0a1824;color:#eaf4fb;border-radius:14px;overflow:hidden;margin:8px -4px 0;position:relative;user-select:none;-webkit-user-select:none}
-.tc .ro{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px 12px 4px;align-items:center}
+.tc canvas.tcsky{position:absolute;top:0;left:0;width:100%;height:0;pointer-events:none;touch-action:auto;cursor:default}.tc .ro{position:relative;z-index:1;text-shadow:0 1px 2px rgba(0,0,0,.45);display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:12px 12px 4px;align-items:center}
 .tc .moon{text-align:center}.tc .moon .e{font-size:46px;line-height:1}.tc .ht{text-align:center}.tc .ht .v{font-size:44px;font-weight:300;line-height:1}
-.tc .sm{font-size:13px;color:#a9c3d6;letter-spacing:.03em}.tc .dt{font-size:15px;font-weight:600;margin-top:4px}
+.tc .sm{font-size:13px;color:#d6e6f2;letter-spacing:.03em}.tc .dt{font-size:15px;font-weight:600;margin-top:4px}
 .tc canvas{display:block;width:100%;height:270px;touch-action:pan-y;cursor:grab}.tc canvas:active{cursor:grabbing}
 .tc .tcbar{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:4px 10px 8px}.tc .nowb{padding:5px 14px;font-size:13px;border-radius:99px;flex:none}
 .tc .note{font-size:11px;color:#a9c3d6}
@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.15 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.16 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -320,7 +320,7 @@ async function loadTides(lat,lon){const my=++tideReq,pin=S.loc&&S.loc.lat==lat&&
    <div class="mut">☀️ ${tt(sn.rise)} – 🌇 ${tt(sn.set)} · 🌙 rise ${tt(mn.rise)} · set ${tt(mn.set)}</div></div>`}
   $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">NOAA station ${id} · ${KIND[R.k][0].toLowerCase()} · ${near.d.toFixed(1)} mi away${pin?" · pinned":""} · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
    <div id="stwarn"></div>${stPicker("tide",plist,id,!!pin)}
-   <div class="tc" id="tc"><div class="ro"><div class="moon"><canvas id="tcMoonC" style="width:80px;height:80px;margin-top:-8px !important;display:block;margin:0 auto"></canvas><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div><div class="sm" id="tcCloud" style="font-size:11px;opacity:.85"></div></div>
+   <div class="tc" id="tc"><canvas class="tcsky" id="tcSkyC" aria-hidden="true"></canvas><div class="ro"><div class="moon"><canvas id="tcMoonC" style="width:80px;height:80px;margin-top:-8px !important;display:block;margin:0 auto;border-radius:50%;background:radial-gradient(closest-side,rgba(4,10,18,.55) 62%,rgba(4,10,18,.25) 82%,rgba(4,10,18,0) 100%)"></canvas><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div><div class="sm" id="tcCloud" style="font-size:11px"></div></div>
     <div class="ht"><div class="v"><span id="tcH">–</span><span style="font-size:16px"> ft</span></div><div class="dt" id="tcT"></div><div class="sm" id="tcNextTide"></div></div></div>
     <canvas id="tcCanvas"></canvas><div class="tcbar"><span class="note">${note||""}</span><span style="display:flex;gap:6px;flex:none"><button class="nowb sec" id="tcPrevDay" aria-label="Previous day">‹ Day</button><button class="nowb" id="tcNow">Now</button><button class="nowb sec" id="tcNextDay" aria-label="Next day">Day ›</button></span></div></div>
    <div class="mut" style="margin-top:4px">30-day predictions · swipe the chart or step by day</div>
@@ -444,6 +444,10 @@ const clampT=t=>Math.max(TC.t0,Math.min(TC.t1,t));
 function snapTC(t){const a=TC.tc,s=performance.now(),D=500,id=TC.snapId=(TC.snapId||0)+1;TC.snapTo=t;const f=n=>{if(id!=TC.snapId)return;const k=Math.min(1,(n-s)/D),e=1-Math.pow(1-k,3);TC.tc=a+(t-a)*e;drawTC();if(k<1)requestAnimationFrame(f);else TC.snapTo=null};requestAnimationFrame(f)}
 function tideAt(t){const c=TC.curve;let lo=0,hi=c.length-1;if(t<=c[0][0])return c[0][1];if(t>=c[hi][0])return c[hi][1];
  while(hi-lo>1){const m=(lo+hi)>>1;if(c[m][0]<=t)lo=m;else hi=m}const f=(t-c[lo][0])/(c[hi][0]-c[lo][0]);return c[lo][1]+(c[hi][1]-c[lo][1])*f}
+
+// WCAG relative luminance of "r,g,b" and the brightest column after a scrim of alpha m (rgb 4,12,22) is blended over it
+function relLum(c){const v=(typeof c=="string"?c.split(","):c).map(x=>{x=+x/255;return x<=.03928?x/12.92:Math.pow((x+.055)/1.055,2.4)});return .2126*v[0]+.7152*v[1]+.0722*v[2]}
+function maxLumMix(cols,m){let L=0;for(const c of cols||[]){const v=c.split(",").map((x,i)=>+x*(1-m)+[4,12,22][i]*m);L=Math.max(L,relLum(v))}return L}
 function skyCol(t){let s=TC.sky.get(t);if(s)return s;const a=bodyAlt(new Date(t),TC.lat,TC.lon,false),L=(p,q,f)=>p.map((v,i)=>v+(q[i]-v)*Math.max(0,Math.min(1,f)));
  const DAY=[38,92,132],WARM=[118,78,72],TWI=[46,40,74],NIGHT=[9,20,32];
  let c=a>=6?DAY:a>=0?L(WARM,DAY,a/6):a>=-6?L(TWI,WARM,(a+6)/6):a>=-12?L(NIGHT,TWI,(a+12)/6):NIGHT;
@@ -624,6 +628,19 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  if(TC.wxRef!==S.wx){TC.wxRef=S.wx;TC.sky.clear();TC.wxMap=null;if(S.wx){const W2=S.wx,o=W2.utc_offset_seconds,Hh=W2.hourly;TC.wxMap=new Map();Hh.time.forEach((s,i)=>TC.wxMap.set(+omTime(s,o,W2.timezone),{cc:Hh.cloud_cover[i],pp:Hh.precipitation_probability[i],code:Hh.weather_code[i],tf:Hh.temperature_2m[i]}));TC.wxEnd=+omTime(Hh.time[Hh.time.length-1],o,W2.timezone)+36e5}}
  const hs=Math.floor(ta/36e5)*36e5;for(let t=hs;t<tb+36e5;t+=36e5){const c0=skyCol(t),c1=skyCol(t+36e5),x0=X(t),x1=X(t+36e5),gx=g.createLinearGradient(x0,0,x1,0);
   gx.addColorStop(0,`rgb(${c0.c})`);gx.addColorStop(1,`rgb(${c1.c})`);g.fillStyle=gx;g.fillRect(Math.floor(x0),0,Math.ceil(x1-x0)+1,H)}
+ TC.hdrCols=[];for(let t=hs;t<tb+36e5;t+=36e5){const x0=X(t),x1=X(t+36e5);if(x1<0||x0>W)continue;TC.hdrCols.push(skyCol(t).c,skyCol(t+36e5).c)}
+ const hk=$("tcSkyC"),hro=cv.parentElement&&cv.parentElement.querySelector(".ro"),HH=hro?hro.offsetHeight:0;let scA=0;
+ if(hk&&HH){if(hk.width!=W*dpr||hk.height!=HH*dpr){hk.width=W*dpr;hk.height=HH*dpr;hk.style.height=HH+"px"}const h2=hk.getContext("2d");h2.setTransform(dpr,0,0,dpr,0,0);let Lmax=0;
+  for(let t=hs;t<tb+36e5;t+=36e5){const c0=skyCol(t),c1=skyCol(t+36e5),x0=X(t),x1=X(t+36e5);if(x1<0||x0>W)continue;const gx=h2.createLinearGradient(x0,0,x1,0);
+   gx.addColorStop(0,`rgb(${c0.c})`);gx.addColorStop(1,`rgb(${c1.c})`);h2.fillStyle=gx;h2.fillRect(Math.floor(x0),0,Math.ceil(x1-x0)+1,HH);Lmax=Math.max(Lmax,relLum(c0.c),relLum(c1.c))}
+  for(let t=hs;t<tb;t+=36e5){const st=skyCol(t);if(st.stars<=.02)continue;const x0=X(t),hn=t/36e5;
+   for(let k=0;k<5;k++){const sx=x0+((hn*5.3+k*11.9)%1)*TC.pxh,syy=3+((hn*9.1+k*4.7)%1)*(HH-6),tw=.55+.45*Math.sin((TC.anim0?(performance.now()-TC.anim0)/1000:0)*(1.1+k*.37)+hn*1.7+k);
+    h2.fillStyle=`rgba(235,240,255,${(.75*st.stars*tw).toFixed(3)})`;h2.fillRect(sx,syy,k%3?1:1.5,k%3?1:1.5)}}
+  // adaptive scrim: smallest darkening that keeps the dimmest header text (#d6e6f2) at >= 4.6:1 on the brightest sky column in view
+  const need=(relLum("214,230,242")+.05)/4.6-.05;if(Lmax>need){let lo=0,hi2=1;for(let k=0;k<14;k++){const m=(lo+hi2)/2;(maxLumMix(TC.hdrCols,m)>need?lo=m:hi2=m)}scA=hi2}
+  TC.hdrLmax=Lmax;TC.scA=scA;if(scA>0){h2.fillStyle=`rgba(4,12,22,${scA.toFixed(3)})`;h2.fillRect(0,0,W,HH)}}
+ // continue the same scrim into the top of the chart and fade it out, so there is no seam
+ if(scA>0){const sg=g.createLinearGradient(0,0,0,44);sg.addColorStop(0,`rgba(4,12,22,${scA.toFixed(3)})`);sg.addColorStop(1,"rgba(4,12,22,0)");g.fillStyle=sg;g.fillRect(0,0,W,44)}
  // clouds and rain only for hours that have forecast data
  const at0=TC.anim0?(performance.now()-TC.anim0)/1000:0;
  for(let t=hs;t<tb;t+=36e5){const s=skyCol(t);if(s.stars<=.02)continue;const x0=X(t),hn=t/36e5;

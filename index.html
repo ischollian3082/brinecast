@@ -193,7 +193,7 @@ async function loadWeather(lat,lon){S.wxErr=0;
    <div class="mut row" style="justify-content:space-between"><span>−24h</span><span>now</span><span>+24h</span></div>`;
   const D=j.daily;$("forecast").innerHTML=`<h2>Weather forecast</h2><div class="hours" style="margin-bottom:8px">${hrs.slice(0,24).map(i=>`<div class="h"><div class="mut">${fmtH(times[i])}</div><div>${WICON(H.weather_code[i])}</div><b>${Math.round(H.temperature_2m[i])}°</b><div class="mut">💧${H.precipitation_probability[i]??"–"}%</div><div class="mut">☁${H.cloud_cover[i]}%</div></div>`).join("")}</div>
    <table>${D.time.slice(1).map((t,k)=>{const i=k+1;return`<tr><td>${fmtD(new Date(t+"T12:00"))}</td><td>${WICON(D.weather_code[i])} ${WMO[D.weather_code[i]]||""}</td><td>${Math.round(D.temperature_2m_max[i])}°/${Math.round(D.temperature_2m_min[i])}°</td><td>💧${D.precipitation_probability_max[i]??"–"}%</td><td>${arrow(D.wind_direction_10m_dominant[i])}${Math.round(D.wind_speed_10m_max[i])}<span class="mut">g${Math.round(D.wind_gusts_10m_max[i])}</span></td></tr>`}).join("")}</table>`;
- $("now").insertAdjacentHTML("beforeend",`<div class="wtslot mut" style="margin-top:6px"></div>`);for(const f of [renderWT,renderSummary,renderGo])try{f()}catch(e){console.error(f.name+" failed:",e)}
+ $("now").insertAdjacentHTML("beforeend",`<div class="wtslot mut" style="margin-top:6px"></div>`);for(const f of [renderWT,renderSummary,renderGo])try{f()}catch(e){console.error(f.name+" failed:",e)};try{TC.cv&&drawTC()}catch(e){}
  }catch(e){// data arrived but a section failed to render: log it, don't claim the weather didn't load
   console.error("loadWeather render failed:",e&&e.stack||e);try{renderSummary()}catch(_){}}}
 async function loadMarine(lat,lon){

@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.8 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.9 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -108,12 +108,15 @@ async function getJSON(url,opt={},tries=2,ms=12000){for(let k=0;k<tries;k++){con
  try{const r=await fetch(url,{...opt,signal:ac.signal});clearTimeout(tm);if(!r.ok){if((r.status>=500||r.status==429)&&k<tries-1){await new Promise(z=>setTimeout(z,800));continue}throw new Error("HTTP "+r.status)}return await r.json()}
  catch(e){clearTimeout(tm);if(k==tries-1||/^HTTP 4/.test(e.message))throw e.name=="AbortError"?new Error("request timed out"):e;await new Promise(z=>setTimeout(z,800))}}}
 function fail(id,title,e){$(id).innerHTML=`<h2>${title}</h2><div class="err">Couldn't load: ${esc(e.message||e)}</div>`}
-// Open-Meteo times are local to the spot; parse as "spot local" by using utc_offset
-// utc_offset_seconds is the offset *now*; a 16-day forecast crosses DST changes, so resolve each wall time with the spot's IANA zone
+// Open-Meteo is requested with timeformat=unixtime: every hourly/daily "time" is epoch seconds (true UTC instant).
+// Its text labels use one fixed offset (utc_offset_seconds = the offset *now*) for the whole range, even across DST,
+// so wall-clock labels are NOT trusted; display converts the instant to local time.
 const TZF={},TZO=new Map();
 function tzOffMs(t,tz){const k=tz+"|"+Math.floor(t/36e5);if(TZO.has(k))return TZO.get(k);try{const f=TZF[tz]||(TZF[tz]=new Intl.DateTimeFormat("en-US",{timeZone:tz,hourCycle:"h23",year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"}));
  const q={};for(const x of f.formatToParts(new Date(Math.floor(t/36e5)*36e5)))q[x.type]=x.value;const o=Date.UTC(+q.year,q.month-1,+q.day,+q.hour%24,+q.minute,+q.second)-Math.floor(t/36e5)*36e5;TZO.set(k,o);return o}catch(e){return null}}
-function omTime(s,off,tz){const g=Date.parse(s+"Z");let t=g-off*1000;if(tz){const o=tzOffMs(t,tz);if(o!=null){t=g-o;const o2=tzOffMs(t,tz);if(o2!=null&&o2!=o)t=g-o2}}return new Date(t)}
+function omTime(s,off){if(typeof s==="number")return new Date(s*1000);/* legacy text label: fixed offset for the whole range */return new Date(Date.parse(s+"Z")-(off||0)*1000)}
+// daily "time" (unixtime) = local midnight at the fixed offset; shift by that offset to get the calendar date
+function omDay(t,off){const iso=typeof t==="number"?new Date((t+(off||0))*1000).toISOString().slice(0,10):String(t).slice(0,10);return new Date(iso+"T12:00")}
 
 /* ---------- astronomy (Schlyter lunar theory + perturbations, ~1-2' accuracy; topocentric moon; GMST) ---------- */
 const rad=Math.PI/180,dayMs=864e5,J1970=2440588,J2000=2451545,e=rad*23.4397;
@@ -191,7 +194,7 @@ $("refresh").onclick=()=>S.loc&&loadAll();
 function loadAll(){S.tideP=null;S.curr=null;S.wt=null;S.buoy={};S.marine=null;renderSummary();const{lat,lon}=S.loc;$("updated").textContent="Updated "+fmtT(new Date());
  loadWeather(lat,lon);loadMarine(lat,lon);loadTides(lat,lon);loadAlerts(lat,lon);renderSky(lat,lon);loadBuoy(lat,lon);loadCurrents(lat,lon);loadWaterTemp(lat,lon)}
 async function loadWeather(lat,lon){S.wxErr=0;
- try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation&hourly=temperature_2m,precipitation_probability,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&past_days=1&forecast_days=16`;
+ try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation&hourly=temperature_2m,precipitation_probability,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&timeformat=unixtime&past_days=1&forecast_days=16`;
   let j;try{j=await getJSON(u,{},3,15000);if(!j||!j.hourly||!j.current)throw new Error("incomplete forecast response")}
   catch(e){const m=String(e&&e.message||e),why=/timed out/.test(m)?"timeout":/^HTTP (\d+)/.test(m)?"HTTP "+m.match(/^HTTP (\d+)/)[1]:/incomplete/.test(m)?"bad response":/fetch|network|load failed/i.test(m)?"network":"error";
    console.error("loadWeather fetch failed:",why,"|",m);S.wxErr=why;renderSummary();["now","wind","pressure","forecast"].forEach((id,k)=>fail(id,["Now","Wind","Barometric pressure","Weather forecast"][k],e));
@@ -218,12 +221,12 @@ async function loadWeather(lat,lon){S.wxErr=0;
    <svg viewBox="0 0 ${W} ${Hh}" style="width:100%;height:80px;margin-top:8px"><line x1="${nx}" x2="${nx}" y1="0" y2="${Hh}" stroke="var(--mut)" stroke-dasharray="3 3"/><polyline points="${pts}" fill="none" stroke="var(--acc)" stroke-width="2.5"/></svg>
    <div class="mut row" style="justify-content:space-between"><span>−24h</span><span>now</span><span>+24h</span></div>`;
   const D=j.daily;$("forecast").innerHTML=`<h2>Weather forecast</h2><div class="hours" style="margin-bottom:8px">${hrs.slice(0,24).map(i=>`<div class="h"><div class="mut">${fmtH(times[i])}</div><div>${WICON(H.weather_code[i])}</div><b>${Math.round(H.temperature_2m[i])}°</b><div class="mut">💧${H.precipitation_probability[i]??"–"}%</div><div class="mut">☁${H.cloud_cover[i]}%</div></div>`).join("")}</div>
-   <table>${D.time.slice(1,8).map((t,k)=>{const i=k+1;return`<tr><td>${fmtD(new Date(t+"T12:00"))}</td><td>${WICON(D.weather_code[i])} ${WMO[D.weather_code[i]]||""}</td><td>${Math.round(D.temperature_2m_max[i])}°/${Math.round(D.temperature_2m_min[i])}°</td><td>💧${D.precipitation_probability_max[i]??"–"}%</td><td>${arrow(D.wind_direction_10m_dominant[i])}${Math.round(D.wind_speed_10m_max[i])}<span class="mut">g${Math.round(D.wind_gusts_10m_max[i])}</span></td></tr>`}).join("")}</table>`;
+   <table>${D.time.slice(1,8).map((t,k)=>{const i=k+1;return`<tr><td>${fmtD(omDay(t,j.utc_offset_seconds))}</td><td>${WICON(D.weather_code[i])} ${WMO[D.weather_code[i]]||""}</td><td>${Math.round(D.temperature_2m_max[i])}°/${Math.round(D.temperature_2m_min[i])}°</td><td>💧${D.precipitation_probability_max[i]??"–"}%</td><td>${arrow(D.wind_direction_10m_dominant[i])}${Math.round(D.wind_speed_10m_max[i])}<span class="mut">g${Math.round(D.wind_gusts_10m_max[i])}</span></td></tr>`}).join("")}</table>`;
  $("now").insertAdjacentHTML("beforeend",`<div class="wtslot mut" style="margin-top:6px"></div>`);for(const f of [renderWT,renderSummary,renderGo])try{f()}catch(e){console.error(f.name+" failed:",e)};try{TC.cv&&drawTC()}catch(e){}
  }catch(e){// data arrived but a section failed to render: log it, don't claim the weather didn't load
   console.error("loadWeather render failed:",e&&e.stack||e);try{renderSummary()}catch(_){}}}
 async function loadMarine(lat,lon){
- try{const j=await getJSON(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period&length_unit=imperial&timezone=auto&forecast_days=3`);
+ try{const j=await getJSON(`https://marine-api.open-meteo.com/v1/marine?latitude=${lat}&longitude=${lon}&current=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period,swell_wave_direction&hourly=wave_height,wave_period,wave_direction,swell_wave_height,swell_wave_period&length_unit=imperial&timezone=auto&timeformat=unixtime&forecast_days=3`);
   const c=j.current||{},H=j.hourly,off=j.utc_offset_seconds;S.marine=j;
   if(c.wave_height==null&&!(H.wave_height||[]).some(v=>v!=null))throw new Error("No sea data for this spot (too far inland?)");
   const times=H.time.map(t=>omTime(t,off,j.timezone));let ni=times.findIndex(t=>t.getTime()>Date.now()-18e5);if(ni<0)ni=0;
@@ -254,13 +257,14 @@ const ymd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${Strin
 // Try each nearby station: hi/lo + 6-minute predictions across datums; skip stations with no data or a flat (non-tidal) curve.
 const TIDE_DATUMS=["MLLW","MSL","MTL","STND"];
 const TIDE_DAYS=32;// yesterday through the end of day 30 (today = day 1)
+const TIDE_PAD_H=12;// fetch past the nominal end so the last listed day is complete to local midnight (then trimmed)
 async function tidePreds(id,begin,datum,iv,range){try{const j=await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=brinecast&begin_date=${begin}&range=${range}&datum=${datum}&station=${id}&time_zone=gmt&units=english&interval=${iv}&format=json`);return j.predictions&&j.predictions.length?j.predictions:null}catch(e){return null}}
-async function tideCurve(id,begin,datum){const H=TIDE_DAYS*24+24,h=H/2,b2=new Date(begin.slice(0,4)+"-"+begin.slice(4,6)+"-"+begin.slice(6)+"T12:00");b2.setDate(b2.getDate()+h/24);
- const[a,b]=await Promise.all([tidePreds(id,begin,datum,"6",h),tidePreds(id,ymd(b2),datum,"6",h)]);if(!a)return null;// NOAA caps interval=6 near 1 month per request, so fetch two ~16-day chunks
+async function tideCurve(id,begin,datum){const H=TIDE_DAYS*24+24,h=H/2,b2=new Date(begin.slice(0,4)+"-"+begin.slice(4,6)+"-"+begin.slice(6)+"T12:00");const k2=Math.floor(h/24);b2.setDate(b2.getDate()+k2);
+ const[a,b]=await Promise.all([tidePreds(id,begin,datum,"6",h),tidePreds(id,ymd(b2),datum,"6",H+TIDE_PAD_H-k2*24)]);if(!a)return null;// NOAA caps interval=6 near 1 month per request, so fetch two ~16-day chunks
  const m=new Map();for(const p of a.concat(b||[]))m.set(Date.parse(p.t.replace(" ","T")+"Z"),+p.v);return[...m].sort((x,y)=>x[0]-y[0])}
 async function pickTideStation(cands,begin){const noCurve=new URLSearchParams(location.search).get("tidefallback");let skipped=0;
  for(const c of cands){const[id,name,state]=c.s;let datum=null,hl=null,cv=null;
-  for(const dt of TIDE_DATUMS){hl=await tidePreds(id,begin,dt,"hilo",TIDE_DAYS*24+24);if(hl&&hl.length>=2){datum=dt;break}hl=null}
+  for(const dt of TIDE_DATUMS){hl=await tidePreds(id,begin,dt,"hilo",TIDE_DAYS*24+24+TIDE_PAD_H);if(hl&&hl.length>=2){datum=dt;break}hl=null}
   if(!noCurve)for(const dt of datum?[datum]:TIDE_DATUMS){const r=await tideCurve(id,begin,dt);if(r&&r.length>100){cv=r;datum=datum||dt;break}}
   if(cv){const vs=cv.map(x=>x[1]);if(Math.max(...vs)-Math.min(...vs)<0.15&&!hl)cv=null}// flat = non-tidal
   let P=hl?hl.map(p=>({t:new Date(p.t.replace(" ","T")+"Z"),v:+p.v,type:p.type})):null;
@@ -291,6 +295,9 @@ async function loadTides(lat,lon){const my=++tideReq,pin=S.loc&&S.loc.lat==lat&&
   if(pin){const pc=st.find(x=>x[0]==pin);if(pc){const d=hav(lat,lon,pc[3],pc[4]),k=stKind(pc[1]);cands=[{s:pc,d,k,score:0,pinned:1}];if(!plist.some(x=>x.id==pin))plist.push({id:pin,name:pc[1],d,kind:KIND[k][0]})}}
   if(!cands.length)throw new Error("No NOAA tide station within 75 mi");
   const b=new Date();b.setDate(b.getDate()-1);const R=await pickTideStation(cands,ymd(b));if(my!=tideReq)return;
+  // trim to the end (local midnight) of the last day the nominal range reaches, so chart and list both cover that whole day
+  {const endL=new Date(Date.UTC(b.getFullYear(),b.getMonth(),b.getDate())+(TIDE_DAYS*24+24)*36e5-1);endL.setHours(24,0,0,0);const E=+endL;
+   if(R.curve)R.curve=R.curve.filter(x=>x[0]<=E);R.P=R.P.filter(p=>+p.t<E)}
   const{id,name,state,d:dist,datum,curve,note,skipped}=R,P=R.P,near={d:dist};const now=Date.now();S.tideP=P;S.tideDatum=datum;
   // inland hint: auto chose an ocean/inlet station but a waterway station is much closer
   // tell the user about the other kind of water nearby (only stations that actually have predictions)

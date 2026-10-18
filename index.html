@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.19 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.20 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -461,7 +461,7 @@ function skyCol(t){let s=TC.sky.get(t);if(s)return s;const a=bodyAlt(new Date(t)
   if(kind=="fog")c=L(c,night?[40,44,48]:[120,126,132],.6);c=L(c,gray,(w.cc||0)/100*.7);
   if(kind=="rain")c=L(c,night?[14,18,24]:[55,62,72],.5);if(kind=="drizzle")c=L(c,night?[18,22,28]:[70,78,88],.3);if(kind=="snow")c=L(c,night?[34,38,46]:[110,118,128],.35);if(kind=="storm")c=L(c,night?[8,10,16]:[34,38,48],.7)}
  const stars=a<-6?Math.min(1,(-6-a)/6)*(1-(w?(w.cc||0):0)/100)*(kind&&kind!="fog"?0:1):0;
- s={c:c.map(Math.round).join(","),wx:w,kind,rain:kind=="rain"||kind=="storm",night,stars};TC.sky.set(t,s);return s}
+ s={c:c.map(Math.round).join(","),wx:w,kind,rain:kind=="rain"||kind=="storm",night,stars,al:a};TC.sky.set(t,s);return s}
 // procedural moon: exact lit fraction, terminator ellipse, lit right when waxing (N. hemisphere), craters, earthshine
 const MOON_CR=[[-.32,-.28,.2],[.18,-.42,.13],[.35,.12,.17],[-.1,.3,.22],[-.45,.18,.1],[.08,.02,.09],[.42,-.22,.07],[-.2,-.05,.08]];
 // Moon surface: NASA SVS 4720 CGI Moon Kit (LROC color map, public domain), pre-projected to a near-side disk
@@ -520,12 +520,12 @@ function tcLoop(n){if(!tcRun()){tcLoopOn=0;if(RM.matches)TC.anim0=0;return}reque
 document.addEventListener("visibilitychange",()=>{if(document.hidden)creRelease();tcKick()});RM.addEventListener?.("change",()=>{drawTC();tcKick()});
 // sea creatures under the tide curve: purely decorative silhouettes in screen space, drawn inside the water clip (behind the line, labels, cursor and readout).
 // They only read the drawn surface sy() to stay submerged; they never touch tide/weather data. Static (at=0) with prefers-reduced-motion.
-const CRE=[{k:"school",v:8,x0:.12,d:.3,w:20,h:10,c:"rgba(14,30,52,.55)",o:"rgba(8,18,32,.5)",A:950,vm:270},{k:"fish",v:-11,x0:.68,d:.55,w:9,h:5,c:"rgba(0,41,56,.33)",A:1150,vm:330},
- {k:"shark",v:5.5,x0:.42,d:.45,w:19.84,h:10.58,c:"rgba(0,44,60,.335)",A:0,vm:170},{k:"jelly",v:-2.2,x0:.86,d:.25,w:7,h:14,c:"rgba(104,20,92,.62)",A:520,vm:150},{k:"ray",v:-4.5,x0:.27,d:.92,w:18,h:6,c:"rgba(0,34,49,.315)",A:700,vm:220}];
+const CRE=[{k:"school",v:8,x0:.12,d:.3,w:20,h:10,c:"rgba(14,30,52,.55)",o:"rgba(8,18,32,.5)",cn:[2,6,14,.92],rn:[150,190,215,.14],A:950,vm:270},{k:"fish",v:-11,x0:.68,d:.55,w:9,h:5,c:"rgba(0,41,56,.33)",A:1150,vm:330},
+ {k:"shark",v:5.5,x0:.42,d:.45,w:19.84,h:10.58,c:"rgba(0,44,60,.335)",A:0,vm:170},{k:"jelly",v:-2.2,x0:.86,d:.25,w:7,h:14,c:"rgba(104,20,92,.62)",cn:[36,3,30,.9],rn:[200,186,212,.14],A:520,vm:150},{k:"ray",v:-4.5,x0:.27,d:.92,w:18,h:6,c:"rgba(0,34,49,.315)",A:700,vm:220}];
 CRE.forEach(c=>Object.assign(c,{ox:0,oy:0,vx:0,vy:0,ph:0,f:c.v<0?-1:1}));
 // flee/chase: while a finger/mouse is down on the chart the shark chases it and every other creature swims away from it and from the shark (force falls off with distance); ~0.7 s after release they ease back to their paths.
 // Display-only state in screen px; never reads or writes tide data. Disabled with reduced motion.
-function creFish(g,t,s){const w=Math.sin(t*6)*1.1;g.beginPath();g.moveTo(8*s,0);g.quadraticCurveTo(2.5*s,-4.4*s,-4*s,-1.1*s);g.lineTo(-8.2*s,(-3.8+w)*s);g.lineTo(-6.6*s,w*.4*s);g.lineTo(-8.2*s,(3.8+w)*s);g.lineTo(-4*s,1.1*s);g.quadraticCurveTo(2.5*s,4.4*s,8*s,0);g.fill()}
+function creFish(g,t,s,nf){const w=Math.sin(t*6)*1.1;g.beginPath();g.moveTo(8*s,0);g.quadraticCurveTo(2.5*s,-4.4*s,-4*s,-1.1*s);g.lineTo(-8.2*s,(-3.8+w)*s);g.lineTo(-6.6*s,w*.4*s);g.lineTo(-8.2*s,(3.8+w)*s);g.lineTo(-4*s,1.1*s);g.quadraticCurveTo(2.5*s,4.4*s,8*s,0);if(!nf)g.fill()}
 function creTouch(cv,e){if(RM.matches)return;const r=cv.getBoundingClientRect();TC.touch={x:e.clientX-r.left,y:e.clientY-r.top};TC.relT=0;TC.creAct=1;tcKick()}
 function creRelease(){if(TC.touch){TC.touch=null;TC.relT=performance.now()}}
 function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
@@ -542,20 +542,24 @@ function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
  c.ox+=c.vx*dt;c.oy+=c.vy*dt;c.ox=Math.max(-W*.7,Math.min(W*.7,c.ox));c.oy=Math.max(-160,Math.min(160,c.oy))}
 
 // school of 7: loose formation around the school's path; each fish has its own burst offset (scatter on press, then regroup)
+// night variant for the school and jelly: sun-altitude factor from the same sky model (0 by day, 1 once the sun is 12deg down), read at the creature's x and eased between hours
+function creNK(x,W){if(!TC.pxh||TC.tc==null)return 0;const t=TC.tc+(x-W/2)/TC.pxh*36e5,h=Math.floor(t/36e5)*36e5,f=(t-h)/36e5,k=a=>{const u=Math.max(0,Math.min(1,-a/12));return u*u*(3-2*u)};
+ return k(skyCol(h).al)*(1-f)+k(skyCol(h+36e5).al)*f}
+const creRGB=s=>s.match(/[\d.]+/g).map(Number),creMix=(d,n,k)=>{const q=i=>d[i]+(n[i]-d[i])*k;return`rgba(${Math.round(q(0))},${Math.round(q(1))},${Math.round(q(2))},${q(3).toFixed(3)})`},creA=(a,m)=>`rgba(${a[0]},${a[1]},${a[2]},${(a[3]*m).toFixed(3)})`;
 const SF=[[9,0,0],[2,-5,1.3],[1,5.5,2.6],[-6,-1,.7],[-12,-6,2],[-12,5,3.3],[-18,0,1.1]];
 function creSchool(g,c,i,x,y,sc,a,ang,sy,bt,dt,rm,now,W){if(!c.F)c.F=SF.map(()=>({bx:0,by:0,vx:0,vy:0,t0:-1e9,ff:0}));
- const J=TC.jmp,co=Math.cos(ang),si=Math.sin(ang),t=c.ph+i*1.7;let busy=false;g.fillStyle=c.c;
+ const J=TC.jmp,co=Math.cos(ang),si=Math.sin(ang),t=c.ph+i*1.7;let busy=false;const nk=c.cn?creNK(x,W):0;c.nk=nk;g.fillStyle=nk>0?creMix(creRGB(c.c),c.cn,nk):c.c;const oS=c.o?(nk>0?creMix(creRGB(c.o),c.cn,nk):c.o):null,rS=c.rn&&nk>0?creA(c.rn,nk):null;
  for(let k=0;k<SF.length;k++){const F=c.F[k],[dx,dy0,p]=SF[k],dy=dy0+(rm?0:Math.sin(t*1.1+p)*1.2);
   const hx=x+c.f*sc*(dx*co-dy*si),hy=y+sc*(dx*si+dy*co);F.hx=hx;F.hy=hy;
   if(rm){F.bx=F.by=F.vx=F.vy=0}else if(dt>0){if(now-F.t0<450){const dr=Math.exp(-2.4*dt);F.vx*=dr;F.vy*=dr}
    else{const kk=Math.min(1,dt*5);let tx=-F.bx*3.5,ty=-F.by*3.5;const ts=Math.hypot(tx,ty);if(ts>200){tx*=200/ts;ty*=200/ts}F.vx+=(tx-F.vx)*kk;F.vy+=(ty-F.vy)*kk}
    F.bx+=F.vx*dt;F.by+=F.vy*dt;if(Math.abs(F.bx)<.8&&Math.abs(F.by)<.8&&Math.hypot(F.vx,F.vy)<4&&now-F.t0>450){F.bx=F.by=F.vx=F.vy=0}else busy=true}
   let fx=hx+F.bx,fy=hy+F.by;const vx=c.v+c.vx+F.vx,fa=rm?0:Math.max(-.5,Math.min(.5,Math.atan2(c.vy+F.vy,Math.abs(vx)+20)));
-  const top=Math.max(sy(fx-7),sy(fx),sy(fx+7))+(3.2+2.6*Math.abs(fa))*sc+1.5,bot=bt-3;// keep each fish under the surface and above the bed
+  const top=Math.max(sy(fx-7),sy(fx),sy(fx+7))+(3.2+2.6*Math.abs(fa)+.8*nk)*sc+1.5,bot=bt-3;// keep each fish under the surface and above the bed
   if(fy<top){F.by+=top-fy;if(F.vy<0)F.vy=0;fy=top}if(fy>bot&&bot>top){F.by-=fy-bot;fy=bot}F.ax=fx;F.ay=fy;F.sc=sc;
   if(J&&J.k===k)continue;// the jumping fish is drawn by tcJump
   if(Math.abs(vx)>3)F.ff=vx<0?-1:1;const ff=F.ff||c.f;
-  g.save();g.globalAlpha=a;g.translate(fx,fy);g.scale(ff*sc,sc);if(fa)g.rotate(fa);creFish(g,t+p,.62);if(c.o){g.strokeStyle=c.o;g.lineWidth=.9;g.stroke()}g.restore()}
+  g.save();g.globalAlpha=a;g.translate(fx,fy);g.scale(ff*sc,sc);if(fa)g.rotate(fa);if(rS){creFish(g,t+p,.62,1);g.strokeStyle=rS;g.lineWidth=1.5;g.stroke()}/* night rim sits behind the body, so only a thin band shows outside it */creFish(g,t+p,.62);if(oS){g.strokeStyle=oS;g.lineWidth=.9;g.stroke()}g.restore()}
  c.busy=busy}
 // press: the other school fish burst outward; the school fish nearest the press x jumps over it (1.5 s cooldown), avoiding labels/icons/marker/bubble
 function creDown(cv,e){if(RM.matches)return;const r=cv.getBoundingClientRect();TC.jReq={x:e.clientX-r.left,y:e.clientY-r.top};TC.creAct=1;tcKick()}
@@ -609,7 +613,7 @@ function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5,now=performance.n
   const hit=B=>B&&x+c.w*1.4*sc>B[0]&&x-c.w*1.4*sc<B[0]+B[2]&&y+hh+4>B[1]&&y-hh-4<B[1]+B[3],ov=hit(TC.bubR)||(TC.lrR||[]).some(hit),ft=ov?.4:1;/* readout bubble or a hi/lo label box */c.fa=rm||c.fa==null?ft:c.fa+(ft-c.fa)*Math.min(1,dt*10);
   TC.creDbg.push({k:c.k,x,y,top:y-hh,surf:s0,al,fa:c.fa,ov});if(c.k=="shark")TC.sharkP={x,y};
   if(c.k=="school"){creSchool(g,c,i,x,y,sc,al*c.fa,ang,sy,bt,dt,rm,now,W);if(c.busy)act=true;continue}
-  g.save();g.globalAlpha=al*c.fa;g.translate(x,y);g.scale(c.k!="jelly"?c.f*sc:sc,sc);if(ang)g.rotate(ang);g.fillStyle=g.strokeStyle=c.c;const t=c.ph+i*1.7;
+  g.save();g.globalAlpha=al*c.fa;g.translate(x,y);g.scale(c.k!="jelly"?c.f*sc:sc,sc);if(ang)g.rotate(ang);let jn=0;if(c.k=="jelly"&&c.cn){jn=creNK(x,W);c.nk=jn}g.fillStyle=g.strokeStyle=jn>0?creMix(creRGB(c.c),c.cn,jn):c.c;const t=c.ph+i*1.7;
   if(c.k=="fish")creFish(g,t,1);
   else if(c.k=="shark"){g.scale(1.3225,1.3225);const sw=Math.sin(t*2.2),tl=1-.14*Math.abs(sw),ty=sw*.7;// side profile, facing +x; tail sweep shows as the caudal fin foreshortening
    g.beginPath();g.moveTo(13.5,.6);g.quadraticCurveTo(10,-3.2,3,-3.7);g.lineTo(-.6,-9.6);g.quadraticCurveTo(-1.6,-5.4,-3.6,-3.3);g.quadraticCurveTo(-7.5,-2.2,-10,-1.1);
@@ -618,7 +622,7 @@ function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5,now=performance.n
    g.beginPath();g.moveTo(-6.5,-2.4);g.lineTo(-7.6,-4.4);g.lineTo(-8.2,-2);g.fill();// second dorsal
    g.lineWidth=.7;g.strokeStyle="rgba(200,245,255,.16)";g.beginPath();for(let k=0;k<3;k++){g.moveTo(6.8-k*1.2,-1.4);g.quadraticCurveTo(6.2-k*1.2,.2,6.7-k*1.2,1.8)}g.stroke()}
   else if(c.k=="jelly"){const p=.5+.5*Math.sin(t*2.1),bw=6*(1+.1*p),bh=5.4*(1-.12*p);
-   g.beginPath();g.ellipse(0,0,bw,bh,0,Math.PI,0);for(let k=0;k<=4;k++){const xx=bw-k*bw/2;g.quadraticCurveTo(xx+bw/8,1.8,xx-bw/4,.6)}g.closePath();g.fill();
+   g.beginPath();g.ellipse(0,0,bw,bh,0,Math.PI,0);for(let k=0;k<=4;k++){const xx=bw-k*bw/2;g.quadraticCurveTo(xx+bw/8,1.8,xx-bw/4,.6)}g.closePath();if(jn>0&&c.rn){const ss=g.strokeStyle;g.strokeStyle=creA(c.rn,jn);g.lineWidth=1.2;g.stroke();g.strokeStyle=ss}/* night rim behind the bell */g.fill();
    g.lineWidth=.9;g.beginPath();for(let k=0;k<4;k++){const tx=-3.6+k*2.4;g.moveTo(tx,1);for(let j=1;j<=4;j++)g.lineTo(tx+Math.sin(t*1.6+k+j*.9)*1.1,1+j*(3-.4*p))}g.stroke()}
   else if(c.k=="ray"){const w=1+.14*Math.sin(t*1.3);g.beginPath();g.moveTo(9,0);g.quadraticCurveTo(3,-1.6,-1,-5.5*w);g.quadraticCurveTo(-3,-1.6,-7,0);g.quadraticCurveTo(-3,1.6,-1,5.5*w);g.quadraticCurveTo(3,1.6,9,0);g.fill();
    g.lineWidth=.9;g.beginPath();g.moveTo(-7,0);g.quadraticCurveTo(-12,Math.sin(t*1.7)*1.2,-19,Math.sin(t*1.7+1)*1.5);g.stroke()}

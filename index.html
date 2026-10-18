@@ -89,9 +89,9 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.11 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.12 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
-const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
+const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
 const DIRS=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"];
 const card=d=>DIRS[Math.round(((d%360)+360)%360/22.5)%16];
@@ -380,8 +380,8 @@ function show(v){let V=VIEWS.find(x=>x[0]==v)||VIEWS[0];if(V[3]&&!LS.get("extras
  lk.style.display=ok?"none":"block";lk.innerHTML=`<h2>${esc(V[1])}</h2><div class="mut">This feature is part of Brinecast Pro.</div>`;
  S.view=V[0];$("viewTitle").textContent="Brinecast · "+V[1];LS.set("view",V[0]);renderMenu();closeMenu();scrollTo(0,0)}
 function renderMenu(){const ex=LS.get("extras",true),it=x=>`<a data-v="${x[0]}" class="${x[0]==S.view?"on":""}">${esc(x[1])}${can(x[0])?"":" 🔒"}</a>`;
- $("menu").innerHTML=VIEWS.filter(x=>!x[3]).map(it).join("")+`<div class="sep">Fishing extras</div>`+(ex?VIEWS.filter(x=>x[3]).map(it).join(""):"")+`<label><input type="checkbox" id="exTog" ${ex?"checked":""}> Show fishing extras</label><label><input type="checkbox" id="slTog" ${LS.get("seaLife",true)?"checked":""}> Sea life on tide chart</label>`;
- $("slTog").onchange=e=>{LS.set("seaLife",e.target.checked);CRE.forEach(c=>Object.assign(c,{ox:0,oy:0,vx:0,vy:0}));TC.creAct=0;drawTC()};$("exTog").onchange=e=>{LS.set("extras",e.target.checked);if(!e.target.checked&&VIEWS.find(x=>x[0]==S.view)[3])show("weather");else renderMenu()}}
+ $("menu").innerHTML=VIEWS.filter(x=>!x[3]).map(it).join("")+`<div class="sep">Fishing extras</div>`+(ex?VIEWS.filter(x=>x[3]).map(it).join(""):"")+`<label><input type="checkbox" id="exTog" ${ex?"checked":""}> Show fishing extras</label>`;
+ $("exTog").onchange=e=>{LS.set("extras",e.target.checked);if(!e.target.checked&&VIEWS.find(x=>x[0]==S.view)[3])show("weather");else renderMenu()}}
 function closeMenu(){$("menu").classList.remove("open");$("menuBtn").setAttribute("aria-expanded","false")}
 $("menuBtn").onclick=e=>{e.stopPropagation();const o=$("menu").classList.toggle("open");$("menuBtn").setAttribute("aria-expanded",o)};
 $("menu").onclick=e=>{e.stopPropagation();if(e.target.closest("label"))return;const a=e.target.closest("a[data-v]");if(a)show(a.dataset.v)};
@@ -518,7 +518,7 @@ CRE.forEach(c=>Object.assign(c,{ox:0,oy:0,vx:0,vy:0,ph:0,f:c.v<0?-1:1}));
 // flee/chase: while a finger/mouse is down on the chart the shark chases it and every other creature swims away from it and from the shark (force falls off with distance); ~0.7 s after release they ease back to their paths.
 // Display-only state in screen px; never reads or writes tide data. Disabled with reduced motion.
 function creFish(g,t,s){const w=Math.sin(t*6)*1.1;g.beginPath();g.moveTo(8*s,0);g.quadraticCurveTo(2.5*s,-4.4*s,-4*s,-1.1*s);g.lineTo(-8.2*s,(-3.8+w)*s);g.lineTo(-6.6*s,w*.4*s);g.lineTo(-8.2*s,(3.8+w)*s);g.lineTo(-4*s,1.1*s);g.quadraticCurveTo(2.5*s,4.4*s,8*s,0);g.fill()}
-function creTouch(cv,e){if(RM.matches||!LS.get("seaLife",true))return;const r=cv.getBoundingClientRect();TC.touch={x:e.clientX-r.left,y:e.clientY-r.top};TC.relT=0;TC.creAct=1;tcKick()}
+function creTouch(cv,e){if(RM.matches)return;const r=cv.getBoundingClientRect();TC.touch={x:e.clientX-r.left,y:e.clientY-r.top};TC.relT=0;TC.creAct=1;tcKick()}
 function creRelease(){if(TC.touch){TC.touch=null;TC.relT=performance.now()}}
 function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
  if(T&&c.k=="shark"){// the shark chases the finger: seek with arrival, then a slow circle instead of jitter (kept underwater by the y clamp in tcCreatures)
@@ -532,7 +532,7 @@ function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
  else if(now-TC.relT<500){c.cw=0;const dr=Math.exp(-2.5*dt);c.vx*=dr;c.vy*=dr}// short beat: coast to a stop
  else{const k=Math.min(1,dt*5);let tx=-c.ox*3.5,ty=-c.oy*3.5;const ts=Math.hypot(tx,ty);if(ts>260){tx*=260/ts;ty*=260/ts}c.vx+=(tx-c.vx)*k;c.vy+=(ty-c.vy)*k}
  c.ox+=c.vx*dt;c.oy+=c.vy*dt;c.ox=Math.max(-W*.7,Math.min(W*.7,c.ox));c.oy=Math.max(-160,Math.min(160,c.oy))}
-function tcCreatures(g,W,H,sy,at){if(!LS.get("seaLife",true)){TC.creAct=0;TC.creDbg=[];return}const M=44,span=W+2*M,bt=H-5,now=performance.now(),rm=RM.matches||!TC.anim0,dt=Math.min(.05,Math.max(0,(now-(TC.creT||now))/1000));TC.creT=now;
+function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5,now=performance.now(),rm=RM.matches||!TC.anim0,dt=Math.min(.05,Math.max(0,(now-(TC.creT||now))/1000));TC.creT=now;
  let act=!!TC.touch;TC.creDbg=[];
  for(let i=0;i<CRE.length;i++){const c=CRE[i],xn=((c.x0*span+c.v*at)%span+span)%span-M;
   if(rm){c.ox=c.oy=c.vx=c.vy=c.ph=0;c.f=c.v<0?-1:1}

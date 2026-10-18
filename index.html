@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.14 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.15 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -574,11 +574,15 @@ function tcJump(g,W,H,sy,air){const now=performance.now(),bt=H-5,sch=CRE.find(c=
     for(const R of TC.obs||[])if(x+9>R[0]&&x-9<R[0]+R[2]&&y+9>R[1]&&y-9<R[1]+R[3])y=Math.max(y,R[1]+R[3]+9);y=Math.max(y,9);x=Math.max(6,Math.min(W-6,x))}}
   else{const u=Math.min(1,(e-J2.Tr-J2.Ta)/J2.Td),yr=sy(J2.xr);x=J2.xr+J2.dir*10*u;y=yr+16*u;vx=J2.dir*10;vy=16;ph=2;if(air&&!J2.s2){J2.s2=1;creSplash(J2.xr,"entry")}}
   if((ph==1)==!!air){const a=Math.max(-1.3,Math.min(1.3,Math.atan2(vy,Math.abs(vx)))),sc=F.sc||1;
-   g.save();g.globalAlpha=sch.fa??1;g.fillStyle=sch.c;g.translate(x,y);g.scale(J2.dir*sc,sc);g.rotate(a);creFish(g,sch.ph*3+SF[J2.k][2],.62);g.restore();
-   if(air){TC.jcur=[x-7,y-7,14,14];TC.jlog&&TC.jlog.push({ev:"air",t:now,x:Math.round(x),y:Math.round(y),surf:Math.round(sy(x))})}}}
+   let fa=.2,gl=0;if(air){const u=(e-J2.Tr)/J2.Ta,sm=v=>v<=0?0:v>=1?1:v*v*(3-2*v);fa=.2+.45*Math.min(sm(u/.18),sm((1-u)/.18));gl=Math.max(0,1-Math.abs(u-.5)/.13)}// airborne: easier to see (0.2 -> 0.65 -> 0.2), silver glint at the top of the arc
+   g.save();g.globalAlpha=sch.fa??1;g.fillStyle=`rgba(205,248,255,${fa.toFixed(3)})`;g.translate(x,y);g.scale(J2.dir*sc,sc);g.rotate(a);creFish(g,sch.ph*3+SF[J2.k][2],.62);
+   if(gl>0){const rg=g.createRadialGradient(1.5,-1,0,1.5,-1,6);rg.addColorStop(0,`rgba(255,255,255,${(.9*gl).toFixed(3)})`);rg.addColorStop(1,"rgba(225,235,245,0)");g.fillStyle=rg;g.beginPath();g.ellipse(1.5,-1,6,3.2,0,0,7);g.fill();
+    g.strokeStyle=`rgba(255,255,255,${(.8*gl).toFixed(3)})`;g.lineWidth=.8;g.beginPath();g.moveTo(1.5-4*gl,-1);g.lineTo(1.5+4*gl,-1);g.moveTo(1.5,-1-3*gl);g.lineTo(1.5,-1+3*gl);g.stroke()}
+   g.restore();J2.fa=fa;J2.gl=gl;
+   if(air){TC.jcur=[x-7,y-7,14,14];TC.jlog&&TC.jlog.push({ev:"air",t:now,x:Math.round(x),y:Math.round(y),surf:Math.round(sy(x)),a:+fa.toFixed(3),gl:+gl.toFixed(2)})}}}
  if(air&&TC.fxs&&TC.fxs.length){TC.fxs=TC.fxs.filter(f=>now-f.t0<700);for(const f of TC.fxs){const u=(now-f.t0)/700,ys=sy(f.x)+.5;
-  g.strokeStyle=`rgba(230,255,255,${(.5*(1-u)).toFixed(3)})`;g.lineWidth=1;g.beginPath();g.ellipse(f.x,ys,2+12*u,(2+12*u)*.28,0,0,7);g.stroke();
-  const td=(now-f.t0)/1000;if(td<.4){g.fillStyle=`rgba(230,255,255,${(.65*(1-td/.4)).toFixed(3)})`;for(const d of f.d){const dx=f.x+d[0]*td,dy=ys+d[1]*td+300*td*td;if(dy<ys){g.beginPath();g.arc(dx,dy,.9,0,7);g.fill()}}}}}}
+  g.strokeStyle=`rgba(235,255,255,${(.62*(1-u)).toFixed(3)})`;g.lineWidth=1;g.beginPath();g.ellipse(f.x,ys,2+12*u,(2+12*u)*.28,0,0,7);g.stroke();
+  const td=(now-f.t0)/1000;if(td<.4){g.fillStyle=`rgba(240,255,255,${(.85*(1-td/.4)).toFixed(3)})`;for(const d of f.d){const dx=f.x+d[0]*td,dy=ys+d[1]*td+300*td*td;if(dy<ys){g.beginPath();g.arc(dx,dy,.9,0,7);g.fill()}}}}}}
 function creSplash(x,kind){(TC.fxs||(TC.fxs=[])).push({x,t0:performance.now(),kind,d:[0,1,2,3,4].map(k=>[(k-2)*14+(Math.random()-.5)*8,-55-Math.random()*35])});TC.jlog&&TC.jlog.push({ev:"splash",kind,x:Math.round(x),t:performance.now()})}
 function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5,now=performance.now(),rm=RM.matches||!TC.anim0,dt=Math.min(.05,Math.max(0,(now-(TC.creT||now))/1000));TC.creT=now;
  let act=!!TC.touch;TC.creDbg=[];{const sc=CRE.find(c=>c.k=="school");if(sc&&sc.F)sc.F.forEach(F=>F.ax=-1e4)}

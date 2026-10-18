@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.20 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.21 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -521,16 +521,46 @@ document.addEventListener("visibilitychange",()=>{if(document.hidden)creRelease(
 // sea creatures under the tide curve: purely decorative silhouettes in screen space, drawn inside the water clip (behind the line, labels, cursor and readout).
 // They only read the drawn surface sy() to stay submerged; they never touch tide/weather data. Static (at=0) with prefers-reduced-motion.
 const CRE=[{k:"school",v:8,x0:.12,d:.3,w:20,h:10,c:"rgba(14,30,52,.55)",o:"rgba(8,18,32,.5)",cn:[2,6,14,.92],rn:[150,190,215,.14],A:950,vm:270},{k:"fish",v:-11,x0:.68,d:.55,w:9,h:5,c:"rgba(0,41,56,.33)",A:1150,vm:330},
- {k:"shark",v:5.5,x0:.42,d:.45,w:19.84,h:10.58,c:"rgba(0,44,60,.335)",A:0,vm:170},{k:"jelly",v:-2.2,x0:.86,d:.25,w:7,h:14,c:"rgba(104,20,92,.62)",cn:[36,3,30,.9],rn:[200,186,212,.14],A:520,vm:150},{k:"ray",v:-4.5,x0:.27,d:.92,w:18,h:6,c:"rgba(0,34,49,.315)",A:700,vm:220}];
+ {k:"shark",v:5.5,x0:.42,d:.45,w:23.81,h:13.65,c:"rgba(0,35,48,.36)",A:0,vm:170},{k:"jelly",v:-2.2,x0:.86,d:.25,w:7,h:14,c:"rgba(104,20,92,.62)",cn:[36,3,30,.9],rn:[200,186,212,.14],A:520,vm:150},{k:"ray",v:-4.5,x0:.27,d:.92,w:18,h:6,c:"rgba(0,34,49,.315)",A:700,vm:220}];
 CRE.forEach(c=>Object.assign(c,{ox:0,oy:0,vx:0,vy:0,ph:0,f:c.v<0?-1:1}));
 // flee/chase: while a finger/mouse is down on the chart the shark chases it and every other creature swims away from it and from the shark (force falls off with distance); ~0.7 s after release they ease back to their paths.
 // Display-only state in screen px; never reads or writes tide data. Disabled with reduced motion.
 function creFish(g,t,s,nf){const w=Math.sin(t*6)*1.1;g.beginPath();g.moveTo(8*s,0);g.quadraticCurveTo(2.5*s,-4.4*s,-4*s,-1.1*s);g.lineTo(-8.2*s,(-3.8+w)*s);g.lineTo(-6.6*s,w*.4*s);g.lineTo(-8.2*s,(3.8+w)*s);g.lineTo(-4*s,1.1*s);g.quadraticCurveTo(2.5*s,4.4*s,8*s,0);if(!nf)g.fill()}
 function creTouch(cv,e){if(RM.matches)return;const r=cv.getBoundingClientRect();TC.touch={x:e.clientX-r.left,y:e.clientY-r.top};TC.relT=0;TC.creAct=1;tcKick()}
-function creRelease(){if(TC.touch){TC.touch=null;TC.relT=performance.now()}}
+function creRelease(){if(TC.touch){TC.touch=null;{const sk=CRE.find(c=>c.k=="shark");if(sk)sk.aim=null}TC.relT=performance.now()}}
+// shark geometry (local units, facing +x, drawn at SHS): one outline shared by drawing and clearance. o = jaw open 0..1: lower jaw turns down about the hinge
+const SHS=1.587,SH_H=[8.2,1.4];
+function sharkCmd(t,o){const sw=Math.sin(t*2.2),tl=1-.14*Math.abs(sw),ty=sw*.7,th=o*.52,cs=Math.cos(th),sn=Math.sin(th),rot=(x,y)=>{const dx=x-SH_H[0],dy=y-SH_H[1];return[SH_H[0]+dx*cs-dy*sn,SH_H[1]+dx*sn+dy*cs]};
+ const P=[["M",13.5,.6],["Q",10,-3.2,3,-3.7],["L",-.6,-9.6],["Q",-1.6,-5.4,-3.6,-3.3],["Q",-7.5,-2.2,-10,-1.1],["L",-10-5.4*tl,-7.4+ty],["Q",-11.6*tl-1,-2.6+ty*.5,-11.4,ty*.3],["L",-10-3.8*tl,4.6+ty],["L",-10,1.2],["Q",-5,3,-.5,3.6],["L",-3.6,7.6],["L",2.6,3.7]];
+ let J=null;if(o>.001){const q=rot(10.575,2.42);J=rot(13.5,.6);P.push(["Q",4.84,3.595,6.85,3.18],["Q",q[0],q[1],J[0],J[1]],["L",SH_H[0],SH_H[1]])}else P.push(["Q",9,3.4,13.5,.6]);return{P,J}}
+function sharkBox(t,o,f,sc,r){const{P}=sharkCmd(t,o),co=Math.cos(r),si=Math.sin(r);let x0=1e9,x1=-1e9,y0=1e9,y1=-1e9;
+ for(const q of P)for(let k=1;k<q.length;k+=2){const px=q[k],py=q[k+1],X=f*sc*SHS*(px*co-py*si),Y=sc*SHS*(px*si+py*co);if(X<x0)x0=X;if(X>x1)x1=X;if(Y<y0)y0=Y;if(Y>y1)y1=Y}return[x0,x1,y0,y1]}
+const sharkO=(c,now)=>{if(!c.bite)return 0;const e=(now-c.bite.t0)/1000,sm=u=>u*u*(3-2*u);return e<.15?0:e<.3?sm((e-.15)/.15):e<.38?1-sm((e-.3)/.08):0};
+// fit the open-jaw box at (ax,ay): under the surface everywhere across it, above the bed, on screen, clear of the bubble and labels
+function sharkFits(c,ax,ay,f,sy,bt,W){const s0=Math.max(sy(ax-c.w),sy(ax),sy(ax+c.w)),sc=Math.max(.55,Math.min(1,(bt-s0)/(2*c.h+18))),b=sharkBox(c.ph,1,f,sc,-.122);
+ if(ax+b[0]<2||ax+b[1]>W-2||ay+b[3]>bt-1)return false;for(let xx=ax+b[0];xx<=ax+b[1]+2.9;xx+=3)if(ay+b[2]<sy(Math.min(xx,ax+b[1]))+2)return false;
+ const R=[TC.bubR,...(TC.lrR||[])];for(const B of R)if(B&&ax+b[0]-3<B[0]+B[2]&&ax+b[1]+3>B[0]&&ay+b[2]-3<B[1]+B[3]&&ay+b[3]+3>B[1])return false;return b}
+const sharkNear=(T,B)=>B&&T.x>B[0]-50&&T.x<B[0]+B[2]+50&&T.y>B[1]-70&&T.y<B[1]+B[3]+70;
+function sharkPlan(c,px,py,sy,bt,W,now){const T=TC.touch,B=TC.bubR;if(!T||c.bite)return;const ready=now>=(c.bcd||0)&&!TC.jmp&&now-(TC.lastSplash||-1e9)>=500;
+ const cand=[];if(sharkNear(T,B)){const bx=B[0]+B[2]/2,mv=(TC.t0x??T.x)-T.x,side=Math.abs(mv)>8?Math.sign(mv):(Math.sign(T.x-bx)||1);
+  cand.push(["under",bx,0]);cand.push(["beside",side>0?B[0]+B[2]+6:B[0]-6,side])}else cand.push(["finger",T.x,0]);
+ for(const[kind,ax0,side]of cand){const f=Math.sign(ax0-px)||c.f||1;const s0=Math.max(sy(ax0-c.w),sy(ax0),sy(ax0+c.w)),sc=Math.max(.55,Math.min(1,(bt-s0)/(2*c.h+18))),b=sharkBox(c.ph,1,f,sc,-.122);
+  let ax=ax0;if(kind=="beside")ax=side>0?ax0-b[0]:ax0-b[1];
+  const ys=kind=="under"?[0,4,8,12,16].map(d=>B[1]+B[3]+10+d-b[2]):(()=>{const a=[];const y0=Math.max(T.y,sy(ax)+2-b[2]);for(let d=0;d<=60;d+=6)a.push(y0+d);return a})();
+  for(const ay of ys){if(sharkFits(c,ax,ay,f,sy,bt,W)){c.aim={x:ax,y:ay};// station: circle just below this spot between bites
+    const dd=Math.hypot(ax-px,ay-py);if(ready&&dd<140&&(c.fa>.95||dd<40)){c.bite={t0:now,ax,ay,f,sx:px,sy:py,kind};TC.blog&&TC.blog.push({ev:"bite",t:now,kind,ax:Math.round(ax),ay:Math.round(ay)})}return}}}
+ c.aim=null;if(ready&&now-(c.bskip||0)>500){c.bskip=now;TC.blog&&TC.blog.push({ev:"skip",t:now})}}
 function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
+ if(c.k=="shark"&&c.bite){const b=c.bite,e=(now-b.t0)/1000;// bite: lunge 0-150 ms, jaw opens 150-300, snaps 300-380, veers off 380-500
+  if(e<.3){const dx=b.ax-px,dy=b.ay-py,d=Math.hypot(dx,dy)||1,sp=Math.min(e<.15?3*c.vm:c.vm,d/Math.max(.04,.3-e)),k=Math.min(1,dt*14);c.vx+=(dx/d*sp-c.vx)*k;c.vy+=(dy/d*sp-c.vy)*k}
+  else if(e<.38){const dr=Math.exp(-9*dt);c.vx*=dr;c.vy*=dr}
+  else if(e<.5){if(!b.vd){let lx=b.ax-b.sx,ly=b.ay-b.sy,l=Math.hypot(lx,ly);if(l<1){lx=b.f;ly=0;l=1}lx/=l;ly/=l;const r=a=>[lx*Math.cos(a)-ly*Math.sin(a),lx*Math.sin(a)+ly*Math.cos(a)],A=r(.7),Bv=r(-.7);b.vd=A[1]>Bv[1]?A:Bv}
+   const k=Math.min(1,dt*10);c.vx+=(b.vd[0]*c.vm*1.1-c.vx)*k;c.vy+=(b.vd[1]*c.vm*1.1-c.vy)*k}
+  else{c.bite=null;c.bcd=now+2000+Math.random()*1000;c.cw=0;TC.blog&&TC.blog.push({ev:"end",t:now})}
+  c.ox+=c.vx*dt;c.oy+=c.vy*dt;c.ox=Math.max(-W*.7,Math.min(W*.7,c.ox));c.oy=Math.max(-160,Math.min(160,c.oy));return}
  if(T&&c.k=="shark"){// the shark chases the finger: seek with arrival, then a slow circle instead of jitter (kept underwater by the y clamp in tcCreatures)
-  const dx=T.x-px,dy=T.y-py,d=Math.hypot(dx,dy)||1,ds=Math.min(c.vm,c.vm*d/60),cr=d<35?30*(1-d/35)+18:0,cw=c.cw||(c.cw=px<T.x?1:-1);
+  const B=TC.bubR,A=c.aim,nb=!A&&sharkNear(T,B),gx=A?A.x:nb?B[0]+B[2]/2:T.x,gy=A?A.y+18:nb?B[1]+B[3]+26:T.y;// circle just below the next bite spot (full darkness, clear of the bubble and labels) and bite up from there
+  const dx=gx-px,dy=gy-py,d=Math.hypot(dx,dy)||1,ds=Math.min(c.vm,c.vm*d/60),cr=d<35?30*(1-d/35)+18:0,cw=c.cw||(c.cw=px<gx?1:-1);
   const tx=dx/d*ds-dy/d*cr*cw,ty=dy/d*ds+dx/d*cr*cw,k=Math.min(1,dt*3.2);c.vx+=(tx-c.vx)*k;c.vy+=(ty-c.vy)*k}
  else if(T){let ax=0,ay=0;const away=(sx,sy2,A,R)=>{let dx=px-sx,dy=py-sy2,d=Math.hypot(dx,dy);if(d<1){dx=px<W/2?-1:1;dy=0;d=1}const a=A*(Math.exp(-d/R)+.1);ax+=dx/d*a;ay+=dy/d*a};
   away(T.x,T.y,c.A,120);const P=TC.sharkP;if(P)away(P.x,P.y,c.A*.8,60);// keep clear of the chasing shark too
@@ -559,10 +589,11 @@ function creSchool(g,c,i,x,y,sc,a,ang,sy,bt,dt,rm,now,W){if(!c.F)c.F=SF.map(()=>
   if(fy<top){F.by+=top-fy;if(F.vy<0)F.vy=0;fy=top}if(fy>bot&&bot>top){F.by-=fy-bot;fy=bot}F.ax=fx;F.ay=fy;F.sc=sc;
   if(J&&J.k===k)continue;// the jumping fish is drawn by tcJump
   if(Math.abs(vx)>3)F.ff=vx<0?-1:1;const ff=F.ff||c.f;
-  g.save();g.globalAlpha=a;g.translate(fx,fy);g.scale(ff*sc,sc);if(fa)g.rotate(fa);if(rS){creFish(g,t+p,.62,1);g.strokeStyle=rS;g.lineWidth=1.5;g.stroke()}/* night rim sits behind the body, so only a thin band shows outside it */creFish(g,t+p,.62);if(oS){g.strokeStyle=oS;g.lineWidth=.9;g.stroke()}g.restore()}
+  {const m=12,x0=fx-5.2*sc-m,x1=fx+5.2*sc+m,y0=fy-3.4*sc-m,y1=fy+3.4*sc+m,h=B=>B&&x1>B[0]&&x0<B[0]+B[2]&&y1>B[1]&&y0<B[1]+B[3],ft=h(TC.bubR)||(TC.lrR||[]).some(h)?.4:1;F.fa=rm||F.fa==null?ft:F.fa+(ft-F.fa)*Math.min(1,dt*(ft<F.fa?20:10));F.ov=ft<1}// each fish fades on its own under the bubble or a label
+  g.save();g.globalAlpha=a*F.fa;g.translate(fx,fy);g.scale(ff*sc,sc);if(fa)g.rotate(fa);if(rS){creFish(g,t+p,.62,1);g.strokeStyle=rS;g.lineWidth=1.5;g.stroke()}/* night rim sits behind the body, so only a thin band shows outside it */creFish(g,t+p,.62);if(oS){g.strokeStyle=oS;g.lineWidth=.9;g.stroke()}g.restore()}
  c.busy=busy}
 // press: the other school fish burst outward; the school fish nearest the press x jumps over it (1.5 s cooldown), avoiding labels/icons/marker/bubble
-function creDown(cv,e){if(RM.matches)return;const r=cv.getBoundingClientRect();TC.jReq={x:e.clientX-r.left,y:e.clientY-r.top};TC.creAct=1;tcKick()}
+function creDown(cv,e){if(RM.matches)return;const r=cv.getBoundingClientRect();TC.jReq={x:e.clientX-r.left,y:e.clientY-r.top};TC.t0x=TC.jReq.x;TC.creAct=1;tcKick()}
 function jPlan(tx,fx,sy,W,bt){const m=3,OFF=[0];for(let o=16;o<=176;o+=16)OFF.push(o,-o);const obs=TC.obs||[],dir=Math.abs(tx-fx)<10?(TC.jDir||1):Math.sign(tx-fx);tx=Math.max(fx-70,Math.min(fx+70,tx));
  for(const Hh of [34,28,22,16])for(const o of OFF){const span=Math.max(24,Hh),xc=tx+o,xe=xc-dir*span/2,xr=xc+dir*span/2;
   if(Math.min(xe,xr)<10||Math.max(xe,xr)>W-10)continue;const ye=sy(xe),yr=sy(xr);if(ye>bt-12||yr>bt-12)continue;let ok=true;
@@ -587,7 +618,7 @@ function tcJump(g,W,H,sy,air){const now=performance.now(),bt=H-5,sch=CRE.find(c=
   else{const u=Math.min(1,(e-J2.Tr-J2.Ta)/J2.Td),yr=sy(J2.xr);x=J2.xr+J2.dir*10*u;y=yr+16*u;vx=J2.dir*10;vy=16;ph=2;if(air&&!J2.s2){J2.s2=1;creSplash(J2.xr,"entry")}}
   if((ph==1)==!!air){const a=Math.max(-1.3,Math.min(1.3,Math.atan2(vy,Math.abs(vx)))),sc=F.sc||1;
    let fa=0,gl=0;if(air){const u=(e-J2.Tr)/J2.Ta,sm=v=>v<=0?0:v>=1?1:v*v*(3-2*v);fa=Math.min(sm(u/.18),sm((1-u)/.18));gl=Math.max(0,1-Math.abs(u-.5)/.13)}// airborne: eases from the school's underwater color to bright silver at 0.65 and back, silver glint at the top of the arc
-   g.save();g.globalAlpha=sch.fa??1;{const m=sch.c.match(/[\d.]+/g).map(Number),q=(a,b)=>a+(b-a)*fa;g.fillStyle=`rgba(${Math.round(q(m[0],205))},${Math.round(q(m[1],248))},${Math.round(q(m[2],255))},${q(m[3],.65).toFixed(3)})`;J2.al=q(m[3],.65)}g.translate(x,y);g.scale(J2.dir*sc,sc);g.rotate(a);creFish(g,sch.ph*3+SF[J2.k][2],.62);
+   g.save();g.globalAlpha=sch.fa??1;{const nk=sch.cn?(sch.nk??creNK(x,W)):0,m=nk>0?creRGB(sch.c).map((v,i)=>v+(sch.cn[i]-v)*nk):creRGB(sch.c),q=(a,b)=>a+(b-a)*fa;g.fillStyle=`rgba(${Math.round(q(m[0],205))},${Math.round(q(m[1],248))},${Math.round(q(m[2],255))},${q(m[3],.65).toFixed(3)})`;J2.al=q(m[3],.65)}g.translate(x,y);g.scale(J2.dir*sc,sc);g.rotate(a);creFish(g,sch.ph*3+SF[J2.k][2],.62);
    if(gl>0){const rg=g.createRadialGradient(1.5,-1,0,1.5,-1,6);rg.addColorStop(0,`rgba(255,255,255,${(.9*gl).toFixed(3)})`);rg.addColorStop(1,"rgba(225,235,245,0)");g.fillStyle=rg;g.beginPath();g.ellipse(1.5,-1,6,3.2,0,0,7);g.fill();
     g.strokeStyle=`rgba(255,255,255,${(.8*gl).toFixed(3)})`;g.lineWidth=.8;g.beginPath();g.moveTo(1.5-4*gl,-1);g.lineTo(1.5+4*gl,-1);g.moveTo(1.5,-1-3*gl);g.lineTo(1.5,-1+3*gl);g.stroke()}
    g.restore();J2.fa=fa;J2.gl=gl;
@@ -595,30 +626,35 @@ function tcJump(g,W,H,sy,air){const now=performance.now(),bt=H-5,sch=CRE.find(c=
  if(air&&TC.fxs&&TC.fxs.length){TC.fxs=TC.fxs.filter(f=>now-f.t0<700);for(const f of TC.fxs){const u=(now-f.t0)/700,ys=sy(f.x)+.5;
   g.strokeStyle=`rgba(235,255,255,${(.62*(1-u)).toFixed(3)})`;g.lineWidth=1;g.beginPath();g.ellipse(f.x,ys,2+12*u,(2+12*u)*.28,0,0,7);g.stroke();
   const td=(now-f.t0)/1000;if(td<.4){g.fillStyle=`rgba(240,255,255,${(.85*(1-td/.4)).toFixed(3)})`;for(const d of f.d){const dx=f.x+d[0]*td,dy=ys+d[1]*td+300*td*td;if(dy<ys){g.beginPath();g.arc(dx,dy,.9,0,7);g.fill()}}}}}}
-function creSplash(x,kind){(TC.fxs||(TC.fxs=[])).push({x,t0:performance.now(),kind,d:[0,1,2,3,4].map(k=>[(k-2)*14+(Math.random()-.5)*8,-55-Math.random()*35])});TC.jlog&&TC.jlog.push({ev:"splash",kind,x:Math.round(x),t:performance.now()})}
+function creSplash(x,kind){TC.lastSplash=performance.now();(TC.fxs||(TC.fxs=[])).push({x,t0:performance.now(),kind,d:[0,1,2,3,4].map(k=>[(k-2)*14+(Math.random()-.5)*8,-55-Math.random()*35])});TC.jlog&&TC.jlog.push({ev:"splash",kind,x:Math.round(x),t:performance.now()})}
 function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5,now=performance.now(),rm=RM.matches||!TC.anim0,dt=Math.min(.05,Math.max(0,(now-(TC.creT||now))/1000));TC.creT=now;
  let act=!!TC.touch;TC.creDbg=[];{const sc=CRE.find(c=>c.k=="school");if(sc&&sc.F)sc.F.forEach(F=>F.ax=-1e4)}
  for(let i=0;i<CRE.length;i++){const c=CRE[i],xn=((c.x0*span+c.v*at)%span+span)%span-M;
   if(rm){c.ox=c.oy=c.vx=c.vy=c.ph=0;c.f=c.v<0?-1:1}
   const x0=xn+c.ox,yy0=(()=>{const s=Math.max(sy(x0-c.w),sy(x0),sy(x0+c.w));return c.ly!=null?c.ly:s+(bt-s)*c.d+c.oy})();// steer from where it was actually drawn
+  if(rm)c.bite=null;else if(c.k=="shark"&&TC.touch&&dt>0)sharkPlan(c,x0,yy0,sy,bt,W,now);
   if(!rm&&dt>0)creStep(c,i,x0,yy0,dt,W,now);
   const x=xn+c.ox,vxt=c.v+c.vx,sp=Math.hypot(c.vx,c.vy);if(!rm){if(Math.abs(vxt)>3)c.f=vxt<0?-1:1;c.ph+=dt*(1+sp/(c.k=="jelly"?22:45))}
-  if(!rm&&(Math.abs(c.ox)>1.5||Math.abs(c.oy)>1.5||sp>4))act=true;else if(!TC.touch){c.ox=c.oy=c.vx=c.vy=0}
+  if(!rm&&(Math.abs(c.ox)>1.5||Math.abs(c.oy)>1.5||sp>4||c.bite))act=true;else if(!TC.touch){c.ox=c.oy=c.vx=c.vy=0}
   if(x<-M||x>W+M){c.ly=null;TC.creDbg.push({k:c.k,x,y:null,top:null});continue}
-  const s0=Math.max(sy(x-c.w),sy(x),sy(x+c.w)),av=bt-s0,sc=Math.max(.55,Math.min(1,av/(2*c.h+18))),hh=c.h*sc,lo=s0+hh+3,hi=bt-hh;
+  const s0=Math.max(sy(x-c.w),sy(x),sy(x+c.w)),av=bt-s0,sc=Math.max(.55,Math.min(1,av/(2*c.h+18))),hh=c.h*sc;let lo=s0+hh+3,hi=bt-hh,shO=0,shR=0,shB=null;
+  if(c.k=="shark"){shO=rm?0:sharkO(c,now);shR=rm?0:Math.max(-.4,Math.min(.4,Math.atan2(c.vy,Math.abs(vxt)+20)))-shO*.122;shB=sharkBox(c.ph+i*1.7,shO,c.f,sc,shR);// full posed box: jaw, lifted snout, fins, tail sweep
+   let sm=-1e9;for(let xx=x+shB[0];xx<=x+shB[1]+2.9;xx+=3)sm=Math.max(sm,sy(Math.min(xx,x+shB[1])));lo=sm-shB[2]+2;hi=bt-shB[3]}
   const al=Math.max(0,Math.min(1,(hi-lo+8)/8));if(al<=0){c.ly=null;TC.creDbg.push({k:c.k,x,y:null,top:null});continue}// no room at this x (very low water): fade out rather than poke out
   let y=lo+Math.max(0,hi-lo)*c.d+c.oy+Math.sin(at*(.7+i*.13)+i*2.1)*Math.min(c.k=="jelly"?5:2.5,Math.max(0,hi-lo)/2);const yc=Math.max(Math.min(y,hi),Math.min(lo,hi));
   if(yc!=y&&!rm){c.oy+=yc-y;c.vy=0}y=yc;c.ly=rm?null:y;// stay below the surface and above the bed
-  const ang=c.k=="jelly"||rm?0:Math.max(-.4,Math.min(.4,Math.atan2(c.vy,Math.abs(vxt)+20)));
-  const hit=B=>B&&x+c.w*1.4*sc>B[0]&&x-c.w*1.4*sc<B[0]+B[2]&&y+hh+4>B[1]&&y-hh-4<B[1]+B[3],ov=hit(TC.bubR)||(TC.lrR||[]).some(hit),ft=ov?.4:1;/* readout bubble or a hi/lo label box */c.fa=rm||c.fa==null?ft:c.fa+(ft-c.fa)*Math.min(1,dt*10);
-  TC.creDbg.push({k:c.k,x,y,top:y-hh,surf:s0,al,fa:c.fa,ov});if(c.k=="shark")TC.sharkP={x,y};
-  if(c.k=="school"){creSchool(g,c,i,x,y,sc,al*c.fa,ang,sy,bt,dt,rm,now,W);if(c.busy)act=true;continue}
+  const ang=c.k=="shark"?shR:c.k=="jelly"||rm?0:Math.max(-.4,Math.min(.4,Math.atan2(c.vy,Math.abs(vxt)+20)));
+  const hit=shB?B=>B&&x+shB[1]+4>B[0]&&x+shB[0]-4<B[0]+B[2]&&y+shB[3]+4>B[1]&&y+shB[2]-4<B[1]+B[3]:B=>B&&x+c.w*1.4*sc>B[0]&&x-c.w*1.4*sc<B[0]+B[2]&&y+hh+4>B[1]&&y-hh-4<B[1]+B[3],ov=hit(TC.bubR)||(TC.lrR||[]).some(hit),ft=ov?.4:1;/* readout bubble or a hi/lo label box */c.fa=rm||c.fa==null?ft:c.fa+(ft-c.fa)*Math.min(1,dt*(c.bite&&ft>c.fa?25:10));
+  TC.creDbg.push({k:c.k,x,y,top:shB?y+shB[2]:y-hh,surf:s0,al,fa:c.fa,ov,sc,o:shO,box:shB&&[x+shB[0],y+shB[2],shB[1]-shB[0],shB[3]-shB[2]]});if(c.k=="shark")TC.sharkP={x,y};
+  if(c.k=="school"){creSchool(g,c,i,x,y,sc,al,ang,sy,bt,dt,rm,now,W);if(c.busy)act=true;continue}
   g.save();g.globalAlpha=al*c.fa;g.translate(x,y);g.scale(c.k!="jelly"?c.f*sc:sc,sc);if(ang)g.rotate(ang);let jn=0;if(c.k=="jelly"&&c.cn){jn=creNK(x,W);c.nk=jn}g.fillStyle=g.strokeStyle=jn>0?creMix(creRGB(c.c),c.cn,jn):c.c;const t=c.ph+i*1.7;
   if(c.k=="fish")creFish(g,t,1);
-  else if(c.k=="shark"){g.scale(1.3225,1.3225);const sw=Math.sin(t*2.2),tl=1-.14*Math.abs(sw),ty=sw*.7;// side profile, facing +x; tail sweep shows as the caudal fin foreshortening
-   g.beginPath();g.moveTo(13.5,.6);g.quadraticCurveTo(10,-3.2,3,-3.7);g.lineTo(-.6,-9.6);g.quadraticCurveTo(-1.6,-5.4,-3.6,-3.3);g.quadraticCurveTo(-7.5,-2.2,-10,-1.1);
-   g.lineTo(-10-5.4*tl,-7.4+ty);g.quadraticCurveTo(-11.6*tl-1,-2.6+ty*.5,-11.4,0+ty*.3);g.lineTo(-10-3.8*tl,4.6+ty);g.lineTo(-10,1.2);
-   g.quadraticCurveTo(-5,3,-.5,3.6);g.lineTo(-3.6,7.6);g.lineTo(2.6,3.7);g.quadraticCurveTo(9,3.4,13.5,.6);g.closePath();g.fill();
+  else if(c.k=="shark"){g.scale(SHS,SHS);const{P,J}=sharkCmd(t,shO);// side profile, facing +x; tail sweep shows as the caudal fin foreshortening
+   g.beginPath();for(const q of P)q[0]=="M"?g.moveTo(q[1],q[2]):q[0]=="L"?g.lineTo(q[1],q[2]):g.quadraticCurveTo(q[1],q[2],q[3],q[4]);g.closePath();g.fill();
+   if(J){const H=SH_H,N=[13.5,.6];g.fillStyle="rgba(0,16,24,.5)";g.beginPath();g.moveTo(H[0],H[1]);g.lineTo(N[0],N[1]);g.lineTo(J[0],J[1]);g.closePath();g.fill();// open mouth wedge, a little darker than the body
+    if(shO>.15){g.fillStyle=`rgba(255,255,255,${(.85*Math.min(1,(shO-.15)/.3)).toFixed(3)})`;const tooth=(A,Bp,u,dn)=>{const bx=A[0]+(Bp[0]-A[0])*u,by=A[1]+(Bp[1]-A[1])*u,ex=Bp[0]-A[0],ey=Bp[1]-A[1],l=Math.hypot(ex,ey),ux=ex/l,uy=ey/l,nx=-uy*dn,ny=ux*dn;
+      g.moveTo(bx-ux*.47,by-uy*.47);g.lineTo(bx+ux*.47,by+uy*.47);g.lineTo(bx+nx*1.26,by+ny*1.26);g.closePath()};g.beginPath();tooth(H,N,.32,1);tooth(H,N,.6,1);tooth(H,N,.86,1);tooth(H,J,.5,-1);tooth(H,J,.8,-1);g.fill()}
+    g.fillStyle=c.c}
    g.beginPath();g.moveTo(-6.5,-2.4);g.lineTo(-7.6,-4.4);g.lineTo(-8.2,-2);g.fill();// second dorsal
    g.lineWidth=.7;g.strokeStyle="rgba(200,245,255,.16)";g.beginPath();for(let k=0;k<3;k++){g.moveTo(6.8-k*1.2,-1.4);g.quadraticCurveTo(6.2-k*1.2,.2,6.7-k*1.2,1.8)}g.stroke()}
   else if(c.k=="jelly"){const p=.5+.5*Math.sin(t*2.1),bw=6*(1+.1*p),bh=5.4*(1-.12*p);

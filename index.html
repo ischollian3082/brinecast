@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.1 · Oct 17 2026";// bump on every push
+const BUILD="v0.9.2 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -364,6 +364,11 @@ function snapTC(t){const a=TC.tc,s=performance.now(),D=500;const f=n=>{const k=M
 function tideAt(t){const c=TC.curve;let lo=0,hi=c.length-1;if(t<=c[0][0])return c[0][1];if(t>=c[hi][0])return c[hi][1];
  while(hi-lo>1){const m=(lo+hi)>>1;if(c[m][0]<=t)lo=m;else hi=m}const f=(t-c[lo][0])/(c[hi][0]-c[lo][0]);return c[lo][1]+(c[hi][1]-c[lo][1])*f}
 let tcRaf=0;function drawTC(){if(!tcRaf)tcRaf=requestAnimationFrame(()=>{tcRaf=0;paintTC()})}
+// gentle water animation (~24 fps) only while the chart is on screen; off with prefers-reduced-motion
+const RM=matchMedia("(prefers-reduced-motion: reduce)");let tcLast=0;
+function tcLoop(n){requestAnimationFrame(tcLoop);if(RM.matches){TC.anim0=0;return}if(!TC.cv||!TC.cv.isConnected||!TC.cv.offsetParent||document.hidden)return;
+ if(!TC.anim0)TC.anim0=n;if(n-tcLast<41)return;tcLast=n;paintTC()}
+requestAnimationFrame(tcLoop);RM.addEventListener?.("change",()=>drawTC());
 function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devicePixelRatio||1,W=cv.clientWidth,H=cv.clientHeight;if(!W)return;
  if(cv.width!=W*dpr||cv.height!=H*dpr){cv.width=W*dpr;cv.height=H*dpr}const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,W,H);
  const cx=W/2,tc=TC.tc,pxh=TC.pxh,X=t=>cx+(t-tc)/36e5*pxh,T=x=>tc+(x-cx)/pxh*36e5,top=78,bot=H-34,pad=(TC.vmax-TC.vmin)*0.08,
@@ -373,9 +378,20 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  let nightStart=ev.length&&ev[0][1]=="sr"?ta-864e5:null;for(const e of ev){if(e[1]=="ss")nightStart=e[0];else if(nightStart!=null){g.fillRect(X(nightStart),0,X(e[0])-X(nightStart),H);nightStart=null}}
  if(nightStart!=null)g.fillRect(X(nightStart),0,W*3,H);
  // curve
- g.beginPath();g.moveTo(-2,H);for(let x=-2;x<=W+2;x+=2)g.lineTo(x,Y(tideAt(T(x))));g.lineTo(W+2,H);g.closePath();
- const gr=g.createLinearGradient(0,top,0,H);gr.addColorStop(0,"#45b8ef");gr.addColorStop(1,"#1d5f8c");g.fillStyle=gr;g.fill();
- g.beginPath();for(let x=-2;x<=W+2;x+=2){const y=Y(tideAt(T(x)));x<=-2?g.moveTo(x,y):g.lineTo(x,y)}g.strokeStyle="#9fe0ff";g.lineWidth=2;g.stroke();
+ const SY=[];for(let x=-2;x<=W+2;x+=2)SY.push(Y(tideAt(T(x))));const sy=x=>SY[Math.max(0,Math.min(SY.length-1,Math.round((x+2)/2)))];
+ const water=new Path2D();water.moveTo(-2,H);SY.forEach((y,i)=>water.lineTo(-2+i*2,y));water.lineTo(W+2,H);water.closePath();
+ // teal, semi-transparent water body
+ const gr=g.createLinearGradient(0,top,0,H);gr.addColorStop(0,"rgba(38,198,218,.62)");gr.addColorStop(.55,"rgba(0,131,143,.72)");gr.addColorStop(1,"rgba(0,77,96,.9)");g.fillStyle=gr;g.fill(water);
+ // texture (clipped to the water): drifting light bands, a tiny surface ripple and a few bubbles. Purely decorative: heights come from tideAt(), never from this.
+ const at=TC.anim0?(performance.now()-TC.anim0)/1000:0;g.save();g.clip(water);
+ g.lineWidth=1;for(let k=0;k<5;k++){const by=top+40+k*34,amp=2+k*.4,ph=at*(.35+k*.07)+k*1.7;g.strokeStyle=`rgba(200,250,255,${.05+.015*(k%2)})`;g.beginPath();
+  for(let x=-2;x<=W+2;x+=6){const y=by+Math.sin(x*.035+ph)*amp+Math.sin(x*.011-ph*.6)*amp*1.4;x<=-2?g.moveTo(x,y):g.lineTo(x,y)}g.stroke()}
+ g.strokeStyle="rgba(224,255,255,.35)";g.beginPath();for(let x=-2;x<=W+2;x+=3){const y=sy(x)+3.5+Math.sin(x*.09+at*1.6)*.9;x<=-2?g.moveTo(x,y):g.lineTo(x,y)}g.stroke();
+ for(let k=0;k<12;k++){const seed=k*97.13,bx=((seed*7.3)%1*W+((k*53)%W)+Math.sin(at*.8+k)*4)%W,cyc=(at*(.06+(k%4)*.015)+(seed%1))%1,byy=H-cyc*(H-top);
+  if(byy>sy(bx)+6){g.fillStyle=`rgba(230,255,255,${.12+.1*(1-cyc)})`;g.beginPath();g.arc(bx,byy,1+(k%3)*.6,0,7);g.fill()}}
+ g.restore();
+ // crisp tide line on top of all texture
+ g.beginPath();SY.forEach((y,i)=>i?g.lineTo(-2+i*2,y):g.moveTo(-2,y));g.strokeStyle="#b2f5ff";g.lineWidth=2;g.lineJoin="round";g.stroke();
  g.font="11px system-ui,sans-serif";g.textAlign="center";
  // hour ticks + day lines
  const h0=new Date(ta);h0.setMinutes(0,0,0);for(let t=+h0;t<tb;t+=36e5){const d=new Date(t),x=X(t);

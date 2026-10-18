@@ -19,7 +19,7 @@ input,select,textarea,button{font:inherit;color:var(--fg);background:var(--card)
 button{background:var(--acc);color:#001018;font-weight:700;border:0;cursor:pointer}button.sec{background:var(--card);color:var(--fg);border:1px solid var(--line)}
 main>*{min-width:0}table{table-layout:auto}main{padding:10px;display:grid;gap:10px;max-width:760px;margin:auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
-.big{font-size:34px;font-weight:800}.mut{color:var(--mut);font-size:14px}.err{color:var(--bad)}
+.big{font-size:34px;font-weight:800}.mut{color:var(--mut);font-size:14px}.err{color:var(--bad)}.warn{background:rgba(255,183,77,.14);border:1px solid rgba(255,183,77,.55);color:var(--fg);border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14px}.stbtn{display:flex;width:100%;align-items:center;gap:6px;text-align:left;font-weight:600;font-size:14px;padding:7px 10px;margin:4px 0}.stbtn .ch{margin-left:auto;color:var(--acc);flex:none}.stlist{border:1px solid var(--line);border-radius:10px;margin:4px 0 8px;max-height:340px;overflow-y:auto}.stlist button{display:block;width:100%;text-align:left;background:none;color:var(--fg);border:0;border-bottom:1px solid var(--line);border-radius:0;font-weight:400;font-size:14px;padding:8px 10px}.stlist button.on{background:rgba(79,195,247,.14);font-weight:700}.stlist .k{font-size:12px;padding:1px 6px;border-radius:99px;background:var(--bg);margin-left:4px;white-space:nowrap}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .kv{background:var(--bg);border-radius:10px;padding:8px}.kv b{display:block;font-size:20px}
 .hours{display:flex;overflow-x:auto;gap:6px;padding-bottom:4px}.h{min-width:62px;text-align:center;background:var(--bg);border-radius:10px;padding:6px 4px;font-size:13px}
@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.6 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.7 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -144,7 +144,9 @@ function dayEvents(day0,lat,lng,moon){const step=5*60e3,thr=moon?0.133:-0.833;le
   p2=prev;prev=a}return out}
 
 /* ---------- location ---------- */
-function setLoc(loc){S.loc=loc;LS.set("loc",loc);$("place").textContent=loc.name;renderFavs();loadAll()}
+function setLoc(loc){const same=x=>x&&x.lat==loc.lat&&x.lon==loc.lon,src=[LS.get("favs",[]).find(same),same(LS.get("loc",null))?LS.get("loc",null):null];
+ for(const k of["pinTide","pinCur"])if(loc[k]==null)for(const x of src)if(x&&x[k]){loc[k]=x[k];break}
+ S.loc=loc;LS.set("loc",loc);$("place").textContent=loc.name;renderFavs();loadAll()}
 $("gps").onclick=()=>{if(!navigator.geolocation)return alert("Geolocation not available");$("place").textContent="Locating…";
  navigator.geolocation.getCurrentPosition(p=>setLoc({name:"My location",lat:+p.coords.latitude.toFixed(4),lon:+p.coords.longitude.toFixed(4)}),
  e=>{$("place").textContent=S.loc?S.loc.name:"Brinecast";alert("Couldn't get location: "+e.message+". Use search instead.")},{timeout:15000,maximumAge:6e5})};
@@ -208,48 +210,93 @@ async function loadMarine(lat,lon){
    <div class="hours" style="margin-top:8px">${hrs.map(i=>`<div class="h"><div class="mut">${fmtD(times[i]).split(",")[0]} ${fmtH(times[i])}</div><b>${f(H.wave_height[i])}′</b><div class="mut">${H.wave_period[i]?H.wave_period[i].toFixed(0)+"s":""}</div><div>${H.wave_direction[i]!=null?arrow(H.wave_direction[i]):""}</div></div>`).join("")}</div>`;
  renderGo();}catch(e){fail("marine","Seas (offshore)",e)}}
 function hav(a,b,c,d){const R=3958.8,x=(c-a)*rad,y=(d-b)*rad,h=Math.sin(x/2)**2+Math.cos(a*rad)*Math.cos(c*rad)*Math.sin(y/2)**2;return 2*R*Math.asin(Math.sqrt(h))}
-async function tideStations(){const c=LS.get("tideStations",null);if(c&&Date.now()-c.t<30*dayMs)return c.s;
+async function tideStations(){const c=LS.get("tideStations2",null);if(c&&Date.now()-c.t<30*dayMs)return c.s;try{localStorage.removeItem("tideStations")}catch(e){}
  const j=await getJSON("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=tidepredictions");
- const s=j.stations.map(x=>[x.id,x.name,x.state,+x.lat,+x.lng]);try{LS.set("tideStations",{t:Date.now(),s})}catch(e){}return s}
+ const s=j.stations.map(x=>[x.id,x.name,x.state,+x.lat,+x.lng,x.type]);try{LS.set("tideStations2",{t:Date.now(),s})}catch(e){}return s}
+/* Station type from the NOAA station name (mdapi has no ocean/waterway field).
+   W waterway: ICWW, bridges, creeks, rivers, landings, docks, marinas... (wins over "Beach", e.g. "Myrtle Beach, Combination Bridge")
+   O ocean / open coast: piers, "(ocean)", beach, jetty, offshore.  I inlet / harbor / bay / sound / entrance / island.  U other (plain place name).
+   Auto pick ranks by distance x weight (O 1, I 1.5, U 1.5, W 3): a waterway station wins only when it is about 3x closer than the
+   nearest ocean station. Exception: if any waterway station (even one with no predictions) is within 0.75 mi, the spot is on
+   that waterway, so stations rank by plain distance (Murrells Inlet's creeks, ICWW docks, Conway on the Waccamaw). */
+function stKind(n){n=n.toLowerCase();if(/\(ocean\)|offshore/.test(n))return"O";
+ if(/icww|waterway|bridge|creek|river|landing|dock|marina|canal|bayou|lake|swamp|slough|plantation|branch|causeway|reach|r\.r\.|\block\b|above|upper end|wharf|yacht|basin|ferry|\bcut\b/.test(n))return"W";
+ if(/pier|ocean|beach|jetty|lighthouse/.test(n))return"O";if(/inlet|harbou?r|bay|sound|entrance|channel|island|point|\bpt\.|cape|pass\b|reef|shoal|lagoon|cove/.test(n))return"I";return"U"}
+const KIND={O:["Ocean",1],I:["Inlet/bay",1.5],U:["Other",1.5],W:["Waterway",3]},FAR_MI=10,ON_WATERWAY_MI=.75;
+function tideCands(st,lat,lon){const all=st.map(s=>{const d=hav(lat,lon,s[3],s[4]);return{s,d,k:stKind(s[1])}}).filter(c=>c.d<=75);
+ const onW=all.some(c=>c.k=="W"&&c.d<ON_WATERWAY_MI);all.forEach(c=>c.score=onW?c.d:c.d*KIND[c.k][1]);return{all,onW}}
+async function hasPreds(id){const b=new Date();for(const dt of TIDE_DATUMS)if(await tidePreds(id,ymd(b),dt,"hilo",24))return true;return false}
 const ymd=d=>`${d.getFullYear()}${String(d.getMonth()+1).padStart(2,"0")}${String(d.getDate()).padStart(2,"0")}`;
 // Try each nearby station: hi/lo + 6-minute predictions across datums; skip stations with no data or a flat (non-tidal) curve.
 const TIDE_DATUMS=["MLLW","MSL","MTL","STND"];
+const TIDE_DAYS=32;// yesterday through the end of day 30 (today = day 1)
 async function tidePreds(id,begin,datum,iv,range){try{const j=await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?product=predictions&application=brinecast&begin_date=${begin}&range=${range}&datum=${datum}&station=${id}&time_zone=gmt&units=english&interval=${iv}&format=json`);return j.predictions&&j.predictions.length?j.predictions:null}catch(e){return null}}
+async function tideCurve(id,begin,datum){const H=TIDE_DAYS*24+24,h=H/2,b2=new Date(begin.slice(0,4)+"-"+begin.slice(4,6)+"-"+begin.slice(6)+"T12:00");b2.setDate(b2.getDate()+h/24);
+ const[a,b]=await Promise.all([tidePreds(id,begin,datum,"6",h),tidePreds(id,ymd(b2),datum,"6",h)]);if(!a)return null;// NOAA caps interval=6 near 1 month per request, so fetch two ~16-day chunks
+ const m=new Map();for(const p of a.concat(b||[]))m.set(Date.parse(p.t.replace(" ","T")+"Z"),+p.v);return[...m].sort((x,y)=>x[0]-y[0])}
 async function pickTideStation(cands,begin){const noCurve=new URLSearchParams(location.search).get("tidefallback");let skipped=0;
  for(const c of cands){const[id,name,state]=c.s;let datum=null,hl=null,cv=null;
-  for(const dt of TIDE_DATUMS){hl=await tidePreds(id,begin,dt,"hilo",168);if(hl&&hl.length>=2){datum=dt;break}hl=null}
-  if(!noCurve)for(const dt of datum?[datum]:TIDE_DATUMS){const r=await tidePreds(id,begin,dt,"6",168);if(r&&r.length>100){cv=r.map(p=>[Date.parse(p.t.replace(" ","T")+"Z"),+p.v]);datum=datum||dt;break}}
+  for(const dt of TIDE_DATUMS){hl=await tidePreds(id,begin,dt,"hilo",TIDE_DAYS*24+24);if(hl&&hl.length>=2){datum=dt;break}hl=null}
+  if(!noCurve)for(const dt of datum?[datum]:TIDE_DATUMS){const r=await tideCurve(id,begin,dt);if(r&&r.length>100){cv=r;datum=datum||dt;break}}
   if(cv){const vs=cv.map(x=>x[1]);if(Math.max(...vs)-Math.min(...vs)<0.15&&!hl)cv=null}// flat = non-tidal
   let P=hl?hl.map(p=>({t:new Date(p.t.replace(" ","T")+"Z"),v:+p.v,type:p.type})):null;
   if(!P&&cv){P=[];for(let i=5;i<cv.length-5;i++){const v=cv[i][1],w=cv.slice(i-5,i+6).map(x=>x[1]);if(v==Math.max(...w)&&v>cv[i-1][1])P.push({t:new Date(cv[i][0]),v,type:"H"});else if(v==Math.min(...w)&&v<cv[i-1][1])P.push({t:new Date(cv[i][0]),v,type:"L"})}if(P.length<2)P=null}
-  if(P){return{id,name,state,d:c.d,datum,P,curve:cv,skipped,note:cv?"":"Curve estimated between highs and lows"}}
+  if(P){return{id,name,state,d:c.d,k:c.k,datum,P,curve:cv,skipped,note:cv?"":"Curve estimated between highs and lows"}}
   skipped++}
- throw new Error("Nearby NOAA tide stations returned no usable predictions")}
-async function loadTides(lat,lon){
- try{const st=await tideStations();const cands=st.map(s=>({s,d:hav(lat,lon,s[3],s[4])})).sort((a,b)=>a.d-b.d).filter(c=>c.d<=75).slice(0,6);
+ throw new Error(cands.length==1&&cands[0].pinned?`Pinned station ${cands[0].s[1]} returned no predictions. Pick another or Auto.`:"Nearby NOAA tide stations returned no usable predictions")}
+// station picker (tide or current): Auto + nearest stations with distance and type; pins live on the spot in localStorage only
+function stPicker(kind,list,curId,pinned){const lab=kind=="tide"?"Tide station":"Current station",cur=list.find(x=>x.id==curId);
+ return`<button class="sec stbtn" data-stp="${kind}">📍 ${lab}: ${cur?esc(cur.name)+" · "+cur.d.toFixed(1)+" mi":"—"}${pinned?" · pinned":" · auto"}<span class="ch">Change ▾</span></button>
+ <div class="stlist" id="stl_${kind}" hidden><button data-pin="" class="${pinned?"":"on"}">Auto <span class="mut">· best match for this spot</span></button>
+ ${list.map(x=>`<button data-pin="${esc(x.id)}" class="${pinned&&x.id==curId?"on":""}">${esc(x.name)} <span class="mut">· ${x.d.toFixed(1)} mi</span> <span class="k">${x.kind}</span>${x.id==curId&&!pinned?' <span class="mut">(auto)</span>':""}</button>`).join("")}</div>`}
+function wirePicker(root,kind){const b=root.querySelector(`[data-stp="${kind}"]`),l=root.querySelector("#stl_"+kind);if(!b||!l)return;
+ b.onclick=()=>{l.hidden=!l.hidden;b.querySelector(".ch").textContent=l.hidden?"Change ▾":"Close ▴"};l.querySelectorAll("[data-pin]").forEach(x=>x.onclick=()=>setPin(kind,x.dataset.pin||null))}
+function setPin(kind,id){if(!S.loc)return;const k=kind=="tide"?"pinTide":"pinCur",ap=o=>{if(id)o[k]=id;else delete o[k]};ap(S.loc);LS.set("loc",S.loc);
+ const f=LS.get("favs",[]);f.forEach(x=>{if(x.lat==S.loc.lat&&x.lon==S.loc.lon)ap(x)});LS.set("favs",f);
+ kind=="tide"?loadTides(S.loc.lat,S.loc.lon):loadCurrents(S.loc.lat,S.loc.lon)}
+// far-station warnings on the Tides screen (tide + current); always name the station and its distance
+function renderStWarn(){const el=$("stwarn");if(!el)return;const w=[],t=S.tideSt,c=S.curr&&S.curr.st;
+ if(t&&t.d>FAR_MI)w.push(`⚠️ Tides from ${esc(t.name)}, ${t.d.toFixed(1)} mi away; may not match your spot.`);
+ if(c&&c.d>FAR_MI)w.push(`⚠️ Currents from ${esc(c.name)}, ${c.d.toFixed(1)} mi away; may not match your spot.`);
+ if(t&&t.hint)w.push(t.hint);el.innerHTML=w.map(x=>`<div class="warn">${x}</div>`).join("")}
+let tideReq=0;
+async function loadTides(lat,lon){const my=++tideReq,pin=S.loc&&S.loc.lat==lat&&S.loc.lon==lon?S.loc.pinTide:null;let plist=[];S.tideSt=null;
+ try{const st=await tideStations();const{all,onW}=tideCands(st,lat,lon);
+  plist=[...all].sort((a,b)=>a.d-b.d).slice(0,14).map(c=>({id:c.s[0],name:c.s[1],d:c.d,kind:KIND[c.k][0]}));
+  let cands=[...all].sort((a,b)=>a.score-b.score).slice(0,6);
+  if(pin){const pc=st.find(x=>x[0]==pin);if(pc){const d=hav(lat,lon,pc[3],pc[4]),k=stKind(pc[1]);cands=[{s:pc,d,k,score:0,pinned:1}];if(!plist.some(x=>x.id==pin))plist.push({id:pin,name:pc[1],d,kind:KIND[k][0]})}}
   if(!cands.length)throw new Error("No NOAA tide station within 75 mi");
-  const b=new Date();b.setDate(b.getDate()-1);const R=await pickTideStation(cands,ymd(b));
+  const b=new Date();b.setDate(b.getDate()-1);const R=await pickTideStation(cands,ymd(b));if(my!=tideReq)return;
   const{id,name,state,d:dist,datum,curve,note,skipped}=R,P=R.P,near={d:dist};const now=Date.now();S.tideP=P;S.tideDatum=datum;
+  // inland hint: auto chose an ocean/inlet station but a waterway station is much closer
+  // tell the user about the other kind of water nearby (only stations that actually have predictions)
+  let hint="";if(!pin){const by=f=>[...all].filter(c=>f(c)&&c.s[0]!=id).sort((a,b)=>a.d-b.d).slice(0,3);
+   if(R.k=="O"){for(const w of by(c=>c.k=="W"&&c.d<dist/2&&c.d<6))if(await hasPreds(w.s[0])){hint=`ℹ️ Using the open-coast station. If you're on the waterway, ${esc(w.s[1])} is ${w.d.toFixed(1)} mi away; pin it below.`;break}}
+   else{for(const o of by(c=>c.k=="O"&&c.d<15))if(await hasPreds(o.s[0])){hint=`ℹ️ ${onW?"This spot is on a creek or waterway":"This spot is closer to inland water than to an ocean station"}, so tides come from ${esc(name)}. Heading to the beach? ${esc(o.s[1])} is ${o.d.toFixed(1)} mi away; pin it below.`;break}}
+   if(my!=tideReq)return}
+  S.tideSt={id,name,d:dist,k:R.k,hint};
   const ni=P.findIndex(p=>p.t>now),nx=P[ni],pv=P[ni-1];let stage="";
   if(nx&&pv){const frac=(now-pv.t)/(nx.t-pv.t);const est=pv.v+(nx.v-pv.v)*(1-Math.cos(Math.PI*frac))/2;
    stage=`${nx.type=="H"?"Rising (incoming)":"Falling (outgoing)"} · ~${est.toFixed(1)} ft · ${Math.round(frac*100)}% to ${nx.type=="H"?"high":"low"}`;
    S.cur.tide=`${nx.type=="H"?"Rising":"Falling"}, ${nx.type=="H"?"high":"low"} at ${fmtT(nx.t)}`}
   const d0=new Date();d0.setHours(0,0,0,0);const tt=x=>x?fmtT(x):"none";let days="";
-  for(let k=0;k<5;k++){const a=new Date(d0);a.setDate(a.getDate()+k);const b2=new Date(a);b2.setDate(b2.getDate()+1);
+  for(let k=0;k<30;k++){const a=new Date(d0);a.setDate(a.getDate()+k);const b2=new Date(a);b2.setDate(b2.getDate()+1);
    const T=P.filter(p=>p.t>=a&&p.t<b2),sn=dayEvents(a,lat,lon,false),mn=dayEvents(a,lat,lon,true),il=moonIllum(new Date(+a+12*36e5));
    days+=`<div style="margin-top:12px;border-top:1px solid var(--line);padding-top:8px"><div style="font-weight:800;color:var(--acc)">${k==0?"Today · ":""}${fmtD(a)}</div>
    <table>${T.map(p=>`<tr style="${p.t<now?"opacity:.5":""}"><td>${p.type=="H"?"▲ High":"▼ Low"}</td><td>${fmtT(p.t)}</td><td>${p.v.toFixed(1)} ft</td></tr>`).join("")||`<tr><td class="mut">No predictions</td></tr>`}</table>
    <div class="mut" style="margin-top:4px">${phaseEmoji(il.phase)} ${phaseName(il.phase)} · ${Math.round(il.fraction*100)}% lit</div>
    <div class="mut">☀️ ${tt(sn.rise)} – 🌇 ${tt(sn.set)} · 🌙 rise ${tt(mn.rise)} · set ${tt(mn.set)}</div></div>`}
-  $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">Station ${id}, ${near.d.toFixed(1)} mi away · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
+  $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">NOAA station ${id} · ${KIND[R.k][0].toLowerCase()} · ${near.d.toFixed(1)} mi away${pin?" · pinned":""} · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
+   <div id="stwarn"></div>${stPicker("tide",plist,id,!!pin)}
    <div class="tc" id="tc"><div class="ro"><div class="moon"><canvas id="tcMoonC" style="width:80px;height:80px;margin-top:-8px !important;display:block;margin:0 auto"></canvas><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div><div class="sm" id="tcCloud" style="font-size:11px;opacity:.85"></div></div>
     <div class="ht"><div class="v"><span id="tcH">–</span><span style="font-size:16px"> ft</span></div><div class="dt" id="tcT"></div><div class="sm" id="tcNext"></div></div></div>
-    <canvas id="tcCanvas"></canvas><div class="tcbar"><span class="note">${note||""}</span><button class="nowb" id="tcNow">Now</button></div></div>
+    <canvas id="tcCanvas"></canvas><div class="tcbar"><span class="note">${note||""}</span><span style="display:flex;gap:6px;flex:none"><button class="nowb sec" id="tcPrev" aria-label="Previous day">‹ Day</button><button class="nowb" id="tcNow">Now</button><button class="nowb sec" id="tcNext" aria-label="Next day">Day ›</button></span></div></div>
+   <div class="mut" style="margin-top:4px">30-day predictions · swipe the chart or step by day</div>
    <div style="font-size:19px;font-weight:700;margin:10px 0 6px">${stage||"—"}</div><div id="wlobs"></div>
    <details style="margin-top:10px"><summary style="cursor:pointer;font-weight:700">Daily tide list</summary>${days}</details>
    <a class="mut" target="_blank" href="https://tidesandcurrents.noaa.gov/noaatidepredictions.html?id=${id}">NOAA page ↗</a>`;
- loadWaterLevel(id,datum);renderSummary();initTideChart(P,curve,lat,lon);
- }catch(e){S.cur.tide=null;fail("tides","Tides",e)}}
+ wirePicker($("tides"),"tide");renderStWarn();loadWaterLevel(id,datum);renderSummary();initTideChart(P,curve,lat,lon);
+ }catch(e){if(my!=tideReq)return;S.cur.tide=null;fail("tides","Tides",e);if(plist.length){$("tides").insertAdjacentHTML("beforeend",stPicker("tide",plist,pin,!!pin));wirePicker($("tides"),"tide")}}}
 async function loadWaterLevel(id,datum="MLLW"){try{const B=`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?application=brinecast&datum=${datum}&station=${id}&time_zone=gmt&units=english&format=json`;
  const o=(await getJSON(B+"&product=water_level&date=latest")).data?.[0];if(!o||o.v==="")return;
  const t=new Date(o.t.replace(" ","T")+"Z"),age=Math.round((Date.now()-t)/6e4);if(age>180)return;
@@ -339,7 +386,7 @@ async function buoyCard(el,near,label){el.innerHTML=`<h2>${label}</h2><div class
 
 /* ---------- swipeable tide chart ---------- */
 const TC={};
-function initTideChart(P,curve,lat,lon){const cv=$("tcCanvas");if(!cv)return;
+function initTideChart(P,curve,lat,lon){const cv=$("tcCanvas");if(!cv)return;moonLast="";// new readout canvas after a re-render (e.g. station pin): force the moon to repaint
  const hl=P.map(p=>[+p.t,p.v,p.type]);
  if(!curve){curve=[];for(let i=0;i<hl.length-1;i++){const a=hl[i],b=hl[i+1];for(let t=a[0];t<b[0];t+=6e5){const f=(t-a[0])/(b[0]-a[0]);curve.push([t,a[1]+(b[1]-a[1])*(1-Math.cos(Math.PI*f))/2])}}hl.length&&curve.push(hl[hl.length-1].slice(0,2))}
  const vs=curve.map(c=>c[1]);Object.assign(TC,{cv,curve,hl,t0:curve[0][0],t1:curve[curve.length-1][0],vmin:Math.min(...vs),vmax:Math.max(...vs),tc:Date.now(),pxh:30,ev:[],moon:{},lat,lon,sky:new Map(),wxRef:null,wxMap:null});
@@ -347,10 +394,10 @@ function initTideChart(P,curve,lat,lon){const cv=$("tcCanvas");if(!cv)return;
  const d=new Date(TC.t0);d.setHours(0,0,0,0);for(;+d<TC.t1;d.setDate(d.getDate()+1)){const s=dayEvents(new Date(d),lat,lon,false),m=dayEvents(new Date(d),lat,lon,true);
   if(s.rise)TC.ev.push([+s.rise,"sr"]);if(s.set)TC.ev.push([+s.set,"ss"]);if(m.rise)TC.ev.push([+m.rise,"mr"]);if(m.set)TC.ev.push([+m.set,"ms"])}
  let drag=null,vel=0,last=0;
- cv.onpointerdown=e=>{drag={x:e.clientX,tc:TC.tc};last=e.clientX;vel=0;TC.anim=null;cv.setPointerCapture(e.pointerId)};
+ cv.onpointerdown=e=>{TC.snapId=(TC.snapId||0)+1;TC.snapTo=null;drag={x:e.clientX,tc:TC.tc};last=e.clientX;vel=0;TC.anim=null;cv.setPointerCapture(e.pointerId)};
  cv.onpointermove=e=>{if(!drag)return;vel=e.clientX-last;last=e.clientX;TC.tc=clampT(drag.tc-(e.clientX-drag.x)/TC.pxh*36e5);drawTC()};
  cv.onpointerup=cv.onpointercancel=()=>{if(!drag)return;drag=null;let v=vel;const step=()=>{if(Math.abs(v)<0.3||drag)return;v*=0.92;TC.tc=clampT(TC.tc-v/TC.pxh*36e5);drawTC();requestAnimationFrame(step)};requestAnimationFrame(step)};
- $("tcNow").onclick=()=>snapTC(Date.now());
+ $("tcNow").onclick=()=>snapTC(Date.now());$("tcPrev").onclick=()=>snapTC(clampT((TC.snapTo??TC.tc)-dayMs));$("tcNext").onclick=()=>snapTC(clampT((TC.snapTo??TC.tc)+dayMs));
  if(!TC.ro){TC.ro=new ResizeObserver(()=>drawTC());}TC.ro.disconnect();TC.ro.observe(cv);drawTC()}
 const TC_SVG=(()=>{const arr=(up,c)=>up?`<path d="M18 13V1.8M14 5.8L18 1.8L22 5.8" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`:`<path d="M18 1V12.2M14 8.2L18 12.2L22 8.2" stroke="${c}" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/>`;
  const sun=(up,c)=>`<defs><radialGradient id="h"><stop offset="0" stop-color="${c}" stop-opacity=".9"/><stop offset=".5" stop-color="${c}" stop-opacity=".4"/><stop offset="1" stop-color="${c}" stop-opacity="0"/></radialGradient></defs><circle cx="7" cy="10.5" r="9" fill="url(#h)"/><path d="M2.5 11A4.5 4.5 0 0 1 11.5 11Z" fill="${c}"/><path d="M0.8 11.8H13.2" stroke="${c}" stroke-width="1.4" stroke-linecap="round"/>${arr(up,c)}`;
@@ -360,7 +407,7 @@ const TC_IMG={};function tcIcon(k){if(!TC_IMG[k]){const im=new Image();im.onload
 // shared "time until" formatter: "42 min" or "1 h 2 m"
 function fmtDur(ms){const m=Math.max(0,Math.round(ms/6e4));return m<60?m+" min":Math.floor(m/60)+" h "+(m%60)+" m"}
 const clampT=t=>Math.max(TC.t0,Math.min(TC.t1,t));
-function snapTC(t){const a=TC.tc,s=performance.now(),D=500;const f=n=>{const k=Math.min(1,(n-s)/D),e=1-Math.pow(1-k,3);TC.tc=a+(t-a)*e;drawTC();if(k<1)requestAnimationFrame(f)};requestAnimationFrame(f)}
+function snapTC(t){const a=TC.tc,s=performance.now(),D=500,id=TC.snapId=(TC.snapId||0)+1;TC.snapTo=t;const f=n=>{if(id!=TC.snapId)return;const k=Math.min(1,(n-s)/D),e=1-Math.pow(1-k,3);TC.tc=a+(t-a)*e;drawTC();if(k<1)requestAnimationFrame(f);else TC.snapTo=null};requestAnimationFrame(f)}
 function tideAt(t){const c=TC.curve;let lo=0,hi=c.length-1;if(t<=c[0][0])return c[0][1];if(t>=c[hi][0])return c[hi][1];
  while(hi-lo>1){const m=(lo+hi)>>1;if(c[m][0]<=t)lo=m;else hi=m}const f=(t-c[lo][0])/(c[hi][0]-c[lo][0]);return c[lo][1]+(c[hi][1]-c[lo][1])*f}
 function skyCol(t){let s=TC.sky.get(t);if(s)return s;const a=bodyAlt(new Date(t),TC.lat,TC.lon,false),L=(p,q,f)=>p.map((v,i)=>v+(q[i]-v)*Math.max(0,Math.min(1,f)));
@@ -505,24 +552,29 @@ async function loadWaterTemp(lat,lon){try{let c=LS.get("wtStations",null);
 function renderWT(){document.querySelectorAll(".wtslot").forEach(el=>{el.innerHTML=S.wt?`🌡️ Water <b>${Math.round(S.wt.f)}°F</b> <span class="mut">· NOAA ${esc(S.wt.name)} (${S.wt.d.toFixed(0)} mi) · ${S.wt.age} min old</span>`:""})}
 
 /* ---------- tidal currents (CO-OPS) ---------- */
-async function loadCurrents(lat,lon){const el=$("currents");el.innerHTML=`<h2>Tidal currents</h2><div class="mut">Loading…</div>`;
+let curReq=0;
+async function loadCurrents(lat,lon){const el=$("currents"),my=++curReq,pin=S.loc&&S.loc.lat==lat&&S.loc.lon==lon?S.loc.pinCur:null;let plist=[];el.innerHTML=`<h2>Tidal currents</h2><div class="mut">Loading…</div>`;
  try{let c=LS.get("curStations",null);
   if(!c||Date.now()-c.t>30*dayMs){const j=await getJSON("https://api.tidesandcurrents.noaa.gov/mdapi/prod/webapi/stations.json?type=currentpredictions");c={t:Date.now(),s:j.stations.map(x=>[x.id,x.name,+x.lat,+x.lng,x.currbin||1])};try{LS.set("curStations",c)}catch(e){}}
-  const near=c.s.map(s=>({id:s[0],name:s[1],bin:s[4],d:hav(lat,lon,s[2],s[3])})).sort((a,b)=>a.d-b.d).filter(s=>s.d<40).slice(0,5);
+  const allC=c.s.map(s=>({id:s[0],name:s[1],bin:s[4],d:hav(lat,lon,s[2],s[3]),kind:KIND[stKind(s[1])][0]})).sort((a,b)=>a.d-b.d);
+  plist=allC.slice(0,12);let near=allC.filter(s=>s.d<40).slice(0,5);
+  if(pin){const pc=allC.find(x=>x.id==pin);if(pc){near=[pc];if(!plist.includes(pc))plist.push(pc)}}
   if(!near.length)throw new Error("No NOAA current station within 40 mi");
   const b=new Date();b.setDate(b.getDate()-1);let st=null,E=null;
   for(const s of near){try{const j=await getJSON(`https://api.tidesandcurrents.noaa.gov/api/prod/datagetter?application=brinecast&product=currents_predictions&station=${s.id}&bin=${s.bin}&begin_date=${ymd(b)}&range=96&interval=MAX_SLACK&time_zone=gmt&units=english&format=json`);
    const cp=j.current_predictions?.cp;if(cp&&cp.length){st=s;E=cp.map(x=>({t:new Date(x.Time.replace(" ","T")+"Z"),v:+x.Velocity_Major,type:x.Type,fd:x.meanFloodDir,ed:x.meanEbbDir}));break}}catch(e){}}
-  if(!st)throw new Error("Nearby current stations returned no predictions");
+  if(my!=curReq)return;
+  if(!st)throw new Error(pin?"Pinned current station returned no predictions. Pick another or Auto.":"Nearby current stations returned no predictions");
   S.curr={st,E};const now=Date.now(),cn=curAt(now),nx=E.filter(e=>e.t>now).slice(0,8);
   const nm=e=>e.type=="slack"?"Slack":e.type=="flood"?"Max flood":"Max ebb";
   const state=cn==null?"":Math.abs(cn)<0.1?"Near slack":`${cn>0?"Flooding":"Ebbing"} ~${Math.abs(cn).toFixed(1)} kn`;
-  el.innerHTML=`<h2>Tidal currents · ${esc(st.name)}</h2><div class="mut">NOAA ${st.id}, ${st.d.toFixed(1)} mi away · predictions, knots</div>
+  el.innerHTML=`<h2>Tidal currents · ${esc(st.name)}</h2><div class="mut">NOAA ${st.id}, ${st.d.toFixed(1)} mi away${pin?" · pinned":""} · predictions, knots</div>
+   ${st.d>FAR_MI?`<div class="warn">⚠️ Currents from ${esc(st.name)}, ${st.d.toFixed(1)} mi away; may not match your spot.</div>`:""}${stPicker("cur",plist,st.id,!!pin)}
    <div style="font-size:19px;font-weight:700;margin:6px 0">${state}</div>
    <table>${nx.map(e=>`<tr><td>${e.type=="slack"?"⏸":e.type=="flood"?"⬆":"⬇"} ${nm(e)}</td><td>${fmtD(e.t).split(",")[0]} ${fmtT(e.t)}</td><td>${e.type=="slack"?"":Math.abs(e.v).toFixed(1)+" kn "+card(e.type=="flood"?e.fd:e.ed)}</td></tr>`).join("")}</table>
    <a class="mut" target="_blank" href="https://tidesandcurrents.noaa.gov/noaacurrents/predictions?id=${st.id}_${st.bin}">NOAA page ↗</a>`;
-  renderSummary();renderGo();
- }catch(e){S.curr=null;fail("currents","Tidal currents",e);renderGo()}}
+  wirePicker(el,"cur");renderStWarn();renderSummary();renderGo();
+ }catch(e){if(my!=curReq)return;S.curr=null;fail("currents","Tidal currents",e);if(plist.length){el.insertAdjacentHTML("beforeend",stPicker("cur",plist,pin,!!pin));wirePicker(el,"cur")}renderStWarn();renderGo()}}
 function curAt(t){const E=S.curr?.E;if(!E)return null;const i=E.findIndex(e=>e.t>t);if(i<1)return null;const a=E[i-1],b=E[i],f=(t-a.t)/(b.t-a.t);return a.v+(b.v-a.v)*(1-Math.cos(Math.PI*f))/2}
 
 /* ---------- "right now" summary ---------- */

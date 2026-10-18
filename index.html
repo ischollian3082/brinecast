@@ -89,7 +89,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.3 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.4 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -242,7 +242,7 @@ async function loadTides(lat,lon){
    <div class="mut" style="margin-top:4px">${phaseEmoji(il.phase)} ${phaseName(il.phase)} · ${Math.round(il.fraction*100)}% lit</div>
    <div class="mut">☀️ ${tt(sn.rise)} – 🌇 ${tt(sn.set)} · 🌙 rise ${tt(mn.rise)} · set ${tt(mn.set)}</div></div>`}
   $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">Station ${id}, ${near.d.toFixed(1)} mi away · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
-   <div class="tc" id="tc"><div class="ro"><div class="moon"><div class="e" id="tcMoonE"></div><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div></div>
+   <div class="tc" id="tc"><div class="ro"><div class="moon"><canvas id="tcMoonC" style="width:58px;height:58px;display:block;margin:0 auto"></canvas><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div></div>
     <div class="ht"><div class="v"><span id="tcH">–</span><span style="font-size:16px"> ft</span></div><div class="dt" id="tcT"></div><div class="sm" id="tcNext"></div></div></div>
     <canvas id="tcCanvas"></canvas><div class="tcbar"><span class="note">${note||""}</span><button class="nowb" id="tcNow">Now</button></div></div>
    <div style="font-size:19px;font-weight:700;margin:10px 0 6px">${stage||"—"}</div><div id="wlobs"></div>
@@ -366,10 +366,26 @@ function tideAt(t){const c=TC.curve;let lo=0,hi=c.length-1;if(t<=c[0][0])return 
 function skyCol(t){let s=TC.sky.get(t);if(s)return s;const a=bodyAlt(new Date(t),TC.lat,TC.lon,false),L=(p,q,f)=>p.map((v,i)=>v+(q[i]-v)*Math.max(0,Math.min(1,f)));
  const DAY=[38,92,132],WARM=[118,78,72],TWI=[46,40,74],NIGHT=[9,20,32];
  let c=a>=6?DAY:a>=0?L(WARM,DAY,a/6):a>=-6?L(TWI,WARM,(a+6)/6):a>=-12?L(NIGHT,TWI,(a+12)/6):NIGHT;
- const w=TC.wxMap&&TC.wxMap.get(t)||null,night=a<-6;let rain=false;
- if(w){const code=w.code||0,gray=night?[24,29,35]:[84,94,104];rain=(code>=51&&code<=67)||(code>=80&&code<=82)||code>=95;
-  if(code==45||code==48)c=L(c,night?[40,44,48]:[120,126,132],.6);c=L(c,gray,(w.cc||0)/100*.7);if(rain)c=L(c,night?[14,18,24]:[55,62,72],.5)}
- s={c:c.map(Math.round).join(","),wx:w,rain,night};TC.sky.set(t,s);return s}
+ const w=TC.wxMap&&TC.wxMap.get(t)||null,night=a<-6;let kind=null;
+ if(w){const code=w.code||0,gray=night?[24,29,35]:[84,94,104];
+  kind=code>=95?"storm":(code>=71&&code<=77)||code==85||code==86?"snow":(code>=61&&code<=67)||(code>=80&&code<=82)?"rain":code>=51&&code<=57?"drizzle":code==45||code==48?"fog":null;
+  if(kind=="fog")c=L(c,night?[40,44,48]:[120,126,132],.6);c=L(c,gray,(w.cc||0)/100*.7);
+  if(kind=="rain")c=L(c,night?[14,18,24]:[55,62,72],.5);if(kind=="drizzle")c=L(c,night?[18,22,28]:[70,78,88],.3);if(kind=="snow")c=L(c,night?[34,38,46]:[110,118,128],.35);if(kind=="storm")c=L(c,night?[8,10,16]:[34,38,48],.7)}
+ const stars=a<-6?Math.min(1,(-6-a)/6)*(1-(w?(w.cc||0):0)/100)*(kind&&kind!="fog"?0:1):0;
+ s={c:c.map(Math.round).join(","),wx:w,kind,rain:kind=="rain"||kind=="storm",night,stars};TC.sky.set(t,s);return s}
+// procedural moon: exact lit fraction, terminator ellipse, lit right when waxing (N. hemisphere), craters, earthshine
+const MOON_CR=[[-.32,-.28,.2],[.18,-.42,.13],[.35,.12,.17],[-.1,.3,.22],[-.45,.18,.1],[.08,.02,.09],[.42,-.22,.07],[-.2,-.05,.08]];
+let moonLast="";function drawMoon(cv,f,waxing){if(!cv)return;const key=f.toFixed(4)+waxing;if(key==moonLast&&cv.width)return;moonLast=key;
+ const dpr=devicePixelRatio||1,S=58;if(cv.width!=S*dpr){cv.width=cv.height=S*dpr}const g=cv.getContext("2d");g.setTransform(dpr,0,0,dpr,0,0);g.clearRect(0,0,S,S);
+ const cx=S/2,cy=S/2,r=S/2-3;g.save();g.beginPath();g.arc(cx,cy,r,0,7);g.clip();
+ g.fillStyle="#1b2632";g.fillRect(0,0,S,S);g.fillStyle="rgba(150,175,200,.16)";g.fillRect(0,0,S,S);// dark side + faint earthshine
+ const k=1-2*f,sgn=waxing?1:-1,N=48;g.beginPath();
+ for(let i=0;i<=N;i++){const yy=-1+2*i/N,w=Math.sqrt(Math.max(0,1-yy*yy));const x=cx+sgn*r*w,y=cy+yy*r;i?g.lineTo(x,y):g.moveTo(x,y)}
+ for(let i=N;i>=0;i--){const yy=-1+2*i/N,w=Math.sqrt(Math.max(0,1-yy*yy));g.lineTo(cx+sgn*k*r*w,cy+yy*r)}g.closePath();
+ const lg=g.createRadialGradient(cx-r*.25,cy-r*.3,r*.1,cx,cy,r*1.05);lg.addColorStop(0,"#fbf6e6");lg.addColorStop(1,"#d9cfb4");g.fillStyle=lg;g.fill();
+ for(const [dx,dy,rr] of MOON_CR){g.fillStyle="rgba(90,80,60,.16)";g.beginPath();g.arc(cx+dx*r,cy+dy*r,rr*r,0,7);g.fill();g.strokeStyle="rgba(255,255,255,.07)";g.lineWidth=.8;g.beginPath();g.arc(cx+dx*r-.5,cy+dy*r-.5,rr*r,Math.PI*.9,Math.PI*1.7);g.stroke()}
+ g.restore();g.strokeStyle="rgba(200,215,230,.18)";g.lineWidth=1;g.beginPath();g.arc(cx,cy,r,0,7);g.stroke()}
+function tcWx(t){const w=TC.wxMap&&TC.wxMap.get(Math.floor(t/36e5)*36e5);return w&&w.tf!=null?` · ${WICON(w.code)} ${Math.round(w.tf)}°`:""}
 let tcRaf=0;function drawTC(){if(!tcRaf)tcRaf=requestAnimationFrame(()=>{tcRaf=0;paintTC()})}
 // gentle water animation (~24 fps) only while the chart is on screen; off with prefers-reduced-motion
 const RM=matchMedia("(prefers-reduced-motion: reduce)");let tcLast=0;
@@ -381,14 +397,20 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  const cx=W/2,tc=TC.tc,pxh=TC.pxh,X=t=>cx+(t-tc)/36e5*pxh,T=x=>tc+(x-cx)/pxh*36e5,top=78,bot=H-34,pad=(TC.vmax-TC.vmin)*0.08,
   Y=v=>bot-(v-TC.vmin+pad)/(TC.vmax-TC.vmin+2*pad)*(bot-top),ta=T(-20),tb=T(W+20);
  // sky: painted per hour at its own position (sun altitude + that hour's forecast clouds/rain); neutral day/night past the forecast
- if(TC.wxRef!==S.wx){TC.wxRef=S.wx;TC.sky.clear();TC.wxMap=null;if(S.wx){const W2=S.wx,o=W2.utc_offset_seconds,Hh=W2.hourly;TC.wxMap=new Map();Hh.time.forEach((s,i)=>TC.wxMap.set(+omTime(s,o),{cc:Hh.cloud_cover[i],pp:Hh.precipitation_probability[i],code:Hh.weather_code[i]}));TC.wxEnd=+omTime(Hh.time[Hh.time.length-1],o)+36e5}}
+ if(TC.wxRef!==S.wx){TC.wxRef=S.wx;TC.sky.clear();TC.wxMap=null;if(S.wx){const W2=S.wx,o=W2.utc_offset_seconds,Hh=W2.hourly;TC.wxMap=new Map();Hh.time.forEach((s,i)=>TC.wxMap.set(+omTime(s,o),{cc:Hh.cloud_cover[i],pp:Hh.precipitation_probability[i],code:Hh.weather_code[i],tf:Hh.temperature_2m[i]}));TC.wxEnd=+omTime(Hh.time[Hh.time.length-1],o)+36e5}}
  const hs=Math.floor(ta/36e5)*36e5;for(let t=hs;t<tb+36e5;t+=36e5){const c0=skyCol(t),c1=skyCol(t+36e5),x0=X(t),x1=X(t+36e5),gx=g.createLinearGradient(x0,0,x1,0);
   gx.addColorStop(0,`rgb(${c0.c})`);gx.addColorStop(1,`rgb(${c1.c})`);g.fillStyle=gx;g.fillRect(Math.floor(x0),0,Math.ceil(x1-x0)+1,H)}
  // clouds and rain only for hours that have forecast data
  const at0=TC.anim0?(performance.now()-TC.anim0)/1000:0;
+ for(let t=hs;t<tb;t+=36e5){const s=skyCol(t);if(s.stars<=.02)continue;const x0=X(t),hn=t/36e5;
+  for(let k=0;k<4;k++){const sx=x0+((hn*13.7+k*7.9)%1)*TC.pxh,syy=4+((hn*7.3+k*3.1)%1)*(top+30),tw=.55+.45*Math.sin(at0*(1.3+k*.4)+hn+k*2);
+   g.fillStyle=`rgba(235,240,255,${(.8*s.stars*tw).toFixed(3)})`;g.fillRect(sx,syy,k%3?1:1.6,k%3?1:1.6)}}
  for(let t=hs;t<tb;t+=36e5){const s=skyCol(t);if(!s.wx)continue;const x0=X(t);
   if(s.wx.cc>=40){const n=s.wx.cc>=80?3:s.wx.cc>=60?2:1;for(let k=0;k<n;k++){const r=((t/36e5*7+k*13)%5),cx2=x0+6+((k*11+t/36e5*5)%(TC.pxh))+Math.sin(at0*.15+k)*2,cy2=top-6+r*5+k*8;
    g.fillStyle=`rgba(${s.night?"150,160,175":"225,232,240"},${.10+s.wx.cc/1000})`;g.beginPath();g.ellipse(cx2,cy2,14,5,0,0,7);g.ellipse(cx2+9,cy2-3,9,5,0,0,7);g.ellipse(cx2-8,cy2+1,8,4,0,0,7);g.fill()}}
+  if(s.kind=="storm"&&TC.anim0){const ph=(at0*.9+((t/36e5*1.37)%1)*9)%9;if(ph<.18){g.fillStyle=`rgba(235,240,255,${.16*(1-ph/.18)})`;g.fillRect(x0,0,TC.pxh+1,H)}}
+  if(s.kind=="snow"){g.fillStyle="rgba(240,245,255,.55)";for(let k=0;k<7;k++){const fx=x0+((k*9+t/36e5*3)%TC.pxh)+Math.sin(at0*.8+k)*2,fy=top-20+((k*41+at0*14)%(H-top+20));g.beginPath();g.arc(fx,fy,1.2,0,7);g.fill()}}
+  if(s.kind=="drizzle"){g.strokeStyle="rgba(190,215,235,.18)";g.lineWidth=1;g.beginPath();for(let k=0;k<4;k++){const rx=x0+((k*9+t/36e5*3)%TC.pxh),ry=top+((k*43+at0*45)%(H-top));g.moveTo(rx,ry);g.lineTo(rx-.8,ry+3)}g.stroke()}
   if(s.rain){g.strokeStyle="rgba(190,215,235,.28)";g.lineWidth=1;g.beginPath();for(let k=0;k<6;k++){const rx=x0+((k*7+t/36e5*3)%TC.pxh),ry=(top+((k*37+at0*60)%(H-top)));g.moveTo(rx,ry);g.lineTo(rx-1.5,ry+6)}g.stroke()}}
  if(TC.wxEnd&&TC.wxEnd>ta&&TC.wxEnd<tb){const fx=X(TC.wxEnd);g.setLineDash([1,3]);g.strokeStyle="rgba(255,255,255,.35)";g.lineWidth=1;g.beginPath();g.moveTo(fx,top-4);g.lineTo(fx,H);g.stroke();g.setLineDash([]);
   g.font="10px system-ui,sans-serif";g.fillStyle="rgba(255,255,255,.55)";g.textAlign=fx>W-80?"right":"left";g.fillText(fx>W-80?"forecast ends ":" forecast ends",fx,top+6);g.textAlign="center"}
@@ -419,7 +441,7 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  g.textAlign="center";g.font="12px system-ui,sans-serif";const LR=[],MID=[];{const m=new Date(ta);m.setHours(0,0,0,0);for(;+m<tb;m.setDate(m.getDate()+1))if(+m>ta)MID.push(X(+m))}
  for(const [t,v,ty] of TC.hl){if(t<ta||t>tb)continue;const l1=v.toFixed(1)+" ft",l2=fmtT(new Date(t)),tw=Math.max(g.measureText(l1).width,g.measureText(l2).width),hw=tw/2+3,y=Y(v);
   let x=X(t);const t0=X(t);for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3)x=t0<lx?lx-hw-4:lx+hw+4;// keep center & midnight lines out of the label
-  x=Math.max(hw+2,Math.min(W-hw-2,x));for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3){const l=lx-hw-4,r=lx+hw+4;x=l>=hw+2?l:r}LR.push([x-hw,y-33,hw*2,30]);g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7)}
+  x=Math.max(hw+2,Math.min(W-hw-2,x));for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3){const l=lx-hw-4,r=lx+hw+4;x=l>=hw+2?l:r}LR.push([x-hw,y-33,hw*2,30]);g.save();g.shadowColor="rgba(0,0,0,.75)";g.shadowBlur=3;g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7);g.restore()}
  // sun/moon markers (top strip): inline SVG icons, rasterized at 3x so they stay crisp on iPhone
  g.font="11px system-ui,sans-serif";
  for(const [t,k] of TC.ev){if(t<ta||t>tb)continue;const x=X(t),sun=k[0]=="s",up=k[1]=="r",yy=sun?16:36,col=sun?(up?"#FFD54A":"#FF7043"):(up?"#FFFFFF":"#9AA3AD"),lab=(sun?"":up?"rise ":"set ")+fmtT(new Date(t)).replace(" ",""),ix=Math.max(2,Math.min(W-28-g.measureText(lab).width,x-24)),im=tcIcon(k);
@@ -436,9 +458,9 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  g.fillStyle="rgba(40,60,75,.88)";g.beginPath();g.roundRect?g.roundRect(bx,by,bw,36,7):g.rect(bx,by,bw,36);g.fill();g.fillStyle="#e9f37a";g.textAlign="left";g.fillText(l1,bx+7,by+15);g.fillText(l2,bx+7,by+30);
  // readout
  const d=new Date(tc),nh=TC.hl.find(x=>x[0]>tc),dk=d.toDateString();
- if(!TC.moon[dk]){const il=moonIllum(new Date(new Date(d).setHours(12,0,0,0)));TC.moon[dk]=il}const il=TC.moon[dk];
- $("tcH").textContent=v.toFixed(1);$("tcT").textContent=fmtT(d);$("tcDate").textContent=d.toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"}).toUpperCase();
- $("tcMoonE").textContent=phaseEmoji(il.phase);$("tcPhase").textContent=`${phaseName(il.phase).toUpperCase()} · ${Math.round(il.fraction*100)}%`;
+ const il=moonIllum(d);drawMoon($("tcMoonC"),il.fraction,il.phase<.5);
+ $("tcH").textContent=v.toFixed(1);$("tcT").textContent=fmtT(d)+tcWx(tc);$("tcDate").textContent=d.toLocaleDateString([],{month:"short",day:"numeric",year:"numeric"}).toUpperCase();
+ $("tcPhase").textContent=`${phaseName(il.phase).toUpperCase()} · ${Math.round(il.fraction*100)}%`;
  if(nh){const m=Math.round((nh[0]-tc)/6e4);$("tcNext").textContent=`${nh[2]=="H"?"⬆ Rising":"⬇ Falling"} · ${fmtDur(nh[0]-tc)} to ${nh[2]=="H"?"high":"low"}`}else $("tcNext").textContent=""}
 
 /* ---------- water temp (CO-OPS) ---------- */

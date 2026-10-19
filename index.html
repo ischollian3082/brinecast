@@ -19,7 +19,8 @@ input,select,textarea,button{font:inherit;color:var(--fg);background:var(--card)
 button{background:var(--acc);color:#001018;font-weight:700;border:0;cursor:pointer}button.sec{background:var(--card);color:var(--fg);border:1px solid var(--line)}
 main>*{min-width:0}table{table-layout:auto}main{padding:10px;display:grid;gap:10px;max-width:760px;margin:auto}
 .card{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:12px}
-.big{font-size:34px;font-weight:800}.mut{color:var(--mut);font-size:14px}.err{color:var(--bad)}.warn{background:rgba(255,183,77,.14);border:1px solid rgba(255,183,77,.55);color:var(--fg);border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14px}.stbtn{display:flex;width:100%;align-items:center;gap:6px;text-align:left;font-weight:600;font-size:14px;padding:7px 10px;margin:4px 0}.stbtn .ch{margin-left:auto;color:var(--acc);flex:none}.stlist{border:1px solid var(--line);border-radius:10px;margin:4px 0 8px;max-height:340px;overflow-y:auto}.stlist button{display:block;width:100%;text-align:left;background:none;color:var(--fg);border:0;border-bottom:1px solid var(--line);border-radius:0;font-weight:400;font-size:14px;padding:8px 10px}.stlist button.on{background:rgba(79,195,247,.14);font-weight:700}.stlist .k{font-size:12px;padding:1px 6px;border-radius:99px;background:var(--bg);margin-left:4px;white-space:nowrap}
+.big{font-size:34px;font-weight:800}.mut{color:var(--mut);font-size:14px}.err{color:var(--bad)}.warn{background:rgba(255,183,77,.14);border:1px solid rgba(255,183,77,.55);color:var(--fg);border-radius:10px;padding:7px 10px;margin:6px 0;font-size:14px}.stbtn{display:flex;width:100%;align-items:center;gap:6px;text-align:left;font-weight:600;font-size:14px;padding:7px 10px;margin:4px 0}.stbtn .ch{margin-left:auto;color:var(--acc);flex:none}.stlist{border:1px solid var(--line);border-radius:10px;margin:4px 0 8px;max-height:340px;overflow-y:auto}.stlist button{display:block;width:100%;text-align:left;background:none;color:var(--fg);border:0;border-bottom:1px solid var(--line);border-radius:0;font-weight:400;font-size:14px;padding:8px 10px}.stlist button.on{background:rgba(79,195,247,.14);font-weight:700}.stlist .stinfo{padding:8px 10px;border-bottom:1px solid var(--line)}.stlist .stinfo h2{margin:0 0 4px;font-size:15px}body[data-view=tides] #alerts{display:none}#stl_tide{max-height:560px}
+.stlist .k{font-size:12px;padding:1px 6px;border-radius:99px;background:var(--bg);margin-left:4px;white-space:nowrap}
 .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:8px}
 .kv{background:var(--bg);border-radius:10px;padding:8px}.kv b{display:block;font-size:20px}
 .hours{display:flex;overflow-x:auto;gap:6px;padding-bottom:4px}.h{min-width:62px;text-align:center;background:var(--bg);border-radius:10px;padding:6px 4px;font-size:13px}
@@ -89,7 +90,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.21 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.22 · Oct 18 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -277,9 +278,9 @@ async function pickTideStation(cands,begin){const noCurve=new URLSearchParams(lo
   skipped++}
  throw new Error(cands.length==1&&cands[0].pinned?`Pinned station ${cands[0].s[1]} returned no predictions. Pick another or Auto.`:"Nearby NOAA tide stations returned no usable predictions")}
 // station picker (tide or current): Auto + nearest stations with distance and type; pins live on the spot in localStorage only
-function stPicker(kind,list,curId,pinned){const lab=kind=="tide"?"Tide station":"Current station",cur=list.find(x=>x.id==curId);
+function stPicker(kind,list,curId,pinned,info=""){const lab=kind=="tide"?"Tide station":"Current station",cur=list.find(x=>x.id==curId);
  return`<button class="sec stbtn" data-stp="${kind}">📍 ${lab}: ${cur?esc(cur.name)+" · "+cur.d.toFixed(1)+" mi":"—"}${pinned?" · pinned":" · auto"}<span class="ch">Change ▾</span></button>
- <div class="stlist" id="stl_${kind}" hidden><button data-pin="" class="${pinned?"":"on"}">Auto <span class="mut">· best match for this spot</span></button>
+ <div class="stlist" id="stl_${kind}" hidden>${info}<button data-pin="" class="${pinned?"":"on"}">Auto <span class="mut">· best match for this spot</span></button>
  ${list.map(x=>`<button data-pin="${esc(x.id)}" class="${pinned&&x.id==curId?"on":""}">${esc(x.name)} <span class="mut">· ${x.d.toFixed(1)} mi</span> <span class="k">${x.kind}</span>${x.id==curId&&!pinned?' <span class="mut">(auto)</span>':""}</button>`).join("")}</div>`}
 function wirePicker(root,kind){const b=root.querySelector(`[data-stp="${kind}"]`),l=root.querySelector("#stl_"+kind);if(!b||!l)return;
  b.onclick=()=>{l.hidden=!l.hidden;b.querySelector(".ch").textContent=l.hidden?"Change ▾":"Close ▴"};l.querySelectorAll("[data-pin]").forEach(x=>x.onclick=()=>setPin(kind,x.dataset.pin||null))}
@@ -322,8 +323,10 @@ async function loadTides(lat,lon){const my=++tideReq,pin=S.loc&&S.loc.lat==lat&&
    <table>${T.map(p=>`<tr style="${p.t<now?"opacity:.5":""}"><td>${p.type=="H"?"▲ High":"▼ Low"}</td><td>${fmtT(p.t)}</td><td>${p.v.toFixed(1)} ft</td></tr>`).join("")||`<tr><td class="mut">No predictions</td></tr>`}</table>
    <div class="mut" style="margin-top:4px">${phaseEmoji(il)} ${phaseName(il)} · ${Math.round(il.fraction*100)}% lit</div>
    <div class="mut">☀️ ${tt(sn.rise)} – 🌇 ${tt(sn.set)} · 🌙 rise ${tt(mn.rise)} · set ${tt(mn.set)}</div></div>`}
-  $("tides").innerHTML=`<h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">NOAA station ${id} · ${KIND[R.k][0].toLowerCase()} · ${near.d.toFixed(1)} mi away${pin?" · pinned":""} · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
-   <div id="stwarn"></div>${stPicker("tide",plist,id,!!pin)}
+  // v0.9.22: station details, far-station warnings and the creek/ocean hint live at the top of the Change panel (same text and logic, moved off the Tides page)
+  const stInfo=`<div class="stinfo"><h2>Tides · ${esc(name)}${state?", "+esc(state):""}</h2><div class="mut">NOAA station ${id} · ${KIND[R.k][0].toLowerCase()} · ${near.d.toFixed(1)} mi away${pin?" · pinned":""} · heights in ft above ${datum}${skipped?` · skipped ${skipped} closer station${skipped>1?"s":""} with no usable predictions`:""}</div>
+   <div id="stwarn"></div></div>`;
+  $("tides").innerHTML=`${stPicker("tide",plist,id,!!pin,stInfo)}
    <div class="tc" id="tc"><canvas class="tcsky" id="tcSkyC" aria-hidden="true"></canvas><div class="ro"><div class="moon"><canvas id="tcMoonC" style="width:80px;height:80px;margin-top:-8px !important;display:block;margin:0 auto;border-radius:50%;background:radial-gradient(closest-side,rgba(4,10,18,.55) 62%,rgba(4,10,18,.25) 82%,rgba(4,10,18,0) 100%)"></canvas><div class="dt" id="tcDate"></div><div class="sm" id="tcPhase"></div><div class="sm" id="tcCloud" style="font-size:11px"></div></div>
     <div class="ht"><div class="v"><span id="tcH">–</span><span style="font-size:16px"> ft</span></div><div class="dt" id="tcT"></div><div class="sm" id="tcNextTide"></div></div></div>
     <canvas id="tcCanvas"></canvas><div class="tcbar"><span class="note">${note||""}</span><span style="display:flex;gap:6px;flex:none"><button class="nowb sec" id="tcPrevDay" aria-label="Previous day">‹ Day</button><button class="nowb" id="tcNow">Now</button><button class="nowb sec" id="tcNextDay" aria-label="Next day">Day ›</button></span></div></div>
@@ -382,7 +385,7 @@ function show(v){let V=VIEWS.find(x=>x[0]==v)||VIEWS[0];if(V[3]&&!LS.get("extras
  const ok=can(V[0]);document.querySelectorAll("main section.card").forEach(s=>s.classList.toggle("show",ok&&V[2].includes(s.id)));
  let lk=$("lockedCard");if(!lk){lk=document.createElement("section");lk.id="lockedCard";lk.className="card locked";document.querySelector("main").prepend(lk)}
  lk.style.display=ok?"none":"block";lk.innerHTML=`<h2>${esc(V[1])}</h2><div class="mut">This feature is part of Brinecast Pro.</div>`;
- S.view=V[0];$("viewTitle").textContent="Brinecast · "+V[1];LS.set("view",V[0]);renderMenu();closeMenu();scrollTo(0,0)}
+ S.view=V[0];document.body.dataset.view=V[0];$("viewTitle").textContent="Brinecast · "+V[1];LS.set("view",V[0]);renderMenu();closeMenu();scrollTo(0,0)}
 function renderMenu(){const ex=LS.get("extras",true),it=x=>`<a data-v="${x[0]}" class="${x[0]==S.view?"on":""}">${esc(x[1])}${can(x[0])?"":" 🔒"}</a>`;
  $("menu").innerHTML=VIEWS.filter(x=>!x[3]).map(it).join("")+`<div class="sep">Fishing extras</div>`+(ex?VIEWS.filter(x=>x[3]).map(it).join(""):"")+`<label><input type="checkbox" id="exTog" ${ex?"checked":""}> Show fishing extras</label>`;
  $("exTog").onchange=e=>{LS.set("extras",e.target.checked);if(!e.target.checked&&VIEWS.find(x=>x[0]==S.view)[3])show("weather");else renderMenu()}}
@@ -537,18 +540,27 @@ function sharkBox(t,o,f,sc,r){const{P}=sharkCmd(t,o),co=Math.cos(r),si=Math.sin(
  for(const q of P)for(let k=1;k<q.length;k+=2){const px=q[k],py=q[k+1],X=f*sc*SHS*(px*co-py*si),Y=sc*SHS*(px*si+py*co);if(X<x0)x0=X;if(X>x1)x1=X;if(Y<y0)y0=Y;if(Y>y1)y1=Y}return[x0,x1,y0,y1]}
 const sharkO=(c,now)=>{if(!c.bite)return 0;const e=(now-c.bite.t0)/1000,sm=u=>u*u*(3-2*u);return e<.15?0:e<.3?sm((e-.15)/.15):e<.38?1-sm((e-.3)/.08):0};
 // fit the open-jaw box at (ax,ay): under the surface everywhere across it, above the bed, on screen, clear of the bubble and labels
-function sharkFits(c,ax,ay,f,sy,bt,W){const s0=Math.max(sy(ax-c.w),sy(ax),sy(ax+c.w)),sc=Math.max(.55,Math.min(1,(bt-s0)/(2*c.h+18))),b=sharkBox(c.ph,1,f,sc,-.122);
- if(ax+b[0]<2||ax+b[1]>W-2||ay+b[3]>bt-1)return false;for(let xx=ax+b[0];xx<=ax+b[1]+2.9;xx+=3)if(ay+b[2]<sy(Math.min(xx,ax+b[1]))+2)return false;
- const R=[TC.bubR,...(TC.lrR||[])];for(const B of R)if(B&&ax+b[0]-3<B[0]+B[2]&&ax+b[1]+3>B[0]&&ay+b[2]-3<B[1]+B[3]&&ay+b[3]+3>B[1])return false;return b}
+// bite spots keep SH_CLR px clear of the bubble and labels: more than the fade check's SH_FM margin, so the snap plays at full darkness
+const SH_FM=4,SH_CLR=8,SH_ST=6;// SH_ST: extra room beside the bubble for the station wander before the lunge
+// worst-case box for a bite spot and its station: either facing (the shark turns as it veers away), jaw closed..open, tail sweep, and the tilt range allowed during a bite
+function sharkBiteBox(c,f,sc){let b=[1e9,-1e9,1e9,-1e9];for(const ff of [f,-f])for(const o of [0,1])for(const t of [0,Math.PI/4.4,-Math.PI/4.4])for(const r of [-.15,0,.15]){const q=sharkBox(t,o,ff,sc,r-o*.122);b=[Math.min(b[0],q[0]),Math.max(b[1],q[1]),Math.min(b[2],q[2]),Math.max(b[3],q[3])]}return b}
+const sharkSc=(c,x,sy,bt)=>{const s0=Math.max(sy(x-c.w),sy(x),sy(x+c.w));return Math.max(.55,Math.min(1,(bt-s0)/(2*c.h+18)))};
+// fit box b at (ax,ay): under the surface everywhere across it, above the bed, on screen, SH_CLR clear of the bubble and labels
+function sharkFits(c,ax,ay,b,sy,bt,W){if(ax+b[0]<2||ax+b[1]>W-2||ay+b[3]>bt-1)return false;for(let xx=ax+b[0];xx<=ax+b[1]+2.9;xx+=3)if(ay+b[2]<sy(Math.min(xx,ax+b[1]))+2)return false;
+ const m=SH_CLR,R=[TC.bubR,...(TC.lrR||[])];for(const B of R)if(B&&ax+b[0]-m<B[0]+B[2]&&ax+b[1]+m>B[0]&&ay+b[2]-m<B[1]+B[3]&&ay+b[3]+m>B[1])return false;return true}
 const sharkNear=(T,B)=>B&&T.x>B[0]-50&&T.x<B[0]+B[2]+50&&T.y>B[1]-70&&T.y<B[1]+B[3]+70;
-function sharkPlan(c,px,py,sy,bt,W,now){const T=TC.touch,B=TC.bubR;if(!T||c.bite)return;const ready=now>=(c.bcd||0)&&!TC.jmp&&now-(TC.lastSplash||-1e9)>=500;
+function sharkPlan(c,px,py,sy,bt,W,now){const T=TC.touch,B=TC.bubR;if(!T||c.bite)return;
+ // no bite while a press is still waiting to become a jump, during a jump, or within 0.5 s of a jump starting or a splash
+ const ready=now>=(c.bcd||0)&&!TC.jReq&&!TC.jmp&&now-(TC.jLast||-1e9)>=500&&now-(TC.lastSplash||-1e9)>=500;
  const cand=[];if(sharkNear(T,B)){const bx=B[0]+B[2]/2,mv=(TC.t0x??T.x)-T.x,side=Math.abs(mv)>8?Math.sign(mv):(Math.sign(T.x-bx)||1);
-  cand.push(["under",bx,0]);cand.push(["beside",side>0?B[0]+B[2]+6:B[0]-6,side])}else cand.push(["finger",T.x,0]);
- for(const[kind,ax0,side]of cand){const f=Math.sign(ax0-px)||c.f||1;const s0=Math.max(sy(ax0-c.w),sy(ax0),sy(ax0+c.w)),sc=Math.max(.55,Math.min(1,(bt-s0)/(2*c.h+18))),b=sharkBox(c.ph,1,f,sc,-.122);
-  let ax=ax0;if(kind=="beside")ax=side>0?ax0-b[0]:ax0-b[1];
-  const ys=kind=="under"?[0,4,8,12,16].map(d=>B[1]+B[3]+10+d-b[2]):(()=>{const a=[];const y0=Math.max(T.y,sy(ax)+2-b[2]);for(let d=0;d<=60;d+=6)a.push(y0+d);return a})();
-  for(const ay of ys){if(sharkFits(c,ax,ay,f,sy,bt,W)){c.aim={x:ax,y:ay};// station: circle just below this spot between bites
-    const dd=Math.hypot(ax-px,ay-py);if(ready&&dd<140&&(c.fa>.95||dd<40)){c.bite={t0:now,ax,ay,f,sx:px,sy:py,kind};TC.blog&&TC.blog.push({ev:"bite",t:now,kind,ax:Math.round(ax),ay:Math.round(ay)})}return}}}
+  cand.push(["under",bx,0],["beside",0,side],["beside",0,-side])}else cand.push(["finger",T.x,0]);// below the bubble, then the finger's side, then the other side
+ for(const[kind,ax0,side]of cand){let ax=ax0,f,b;
+  if(kind=="beside"){f=side;const g0=SH_CLR+SH_ST,x1=side>0?B[0]+B[2]+g0+30:B[0]-g0-30;b=sharkBiteBox(c,f,sharkSc(c,x1,sy,bt));ax=side>0?B[0]+B[2]+g0-b[0]:B[0]-g0-b[1];b=sharkBiteBox(c,f,sharkSc(c,ax,sy,bt))}
+  else{f=Math.sign(ax0-px)||c.f||1;b=sharkBiteBox(c,f,sharkSc(c,ax0,sy,bt))}
+  if(kind=="beside")ax=side>0?Math.max(ax,B[0]+B[2]+SH_CLR+SH_ST-b[0]):Math.min(ax,B[0]-SH_CLR-SH_ST-b[1]);
+  const ys=[];if(kind=="under"){for(let d=0;d<=24;d+=4)ys.push(B[1]+B[3]+SH_CLR+2+d-b[2])}else{const y0=Math.max(kind=="finger"?T.y:B[1],sy(ax)+2-b[2]);for(let d=0;d<=72;d+=4)ys.push(y0+d)}
+  for(const ay of ys){if(sharkFits(c,ax,ay,b,sy,bt,W)){c.aim={x:ax,y:ay};// station: circle just below this spot between bites
+    const dd=Math.hypot(ax-px,ay-py);if(ready&&dd<140&&c.fa>.97){c.bite={t0:now,ax,ay,f,sx:px,sy:py,kind};TC.blog&&TC.blog.push({ev:"bite",t:now,kind,ax:Math.round(ax),ay:Math.round(ay)})}return}}}
  c.aim=null;if(ready&&now-(c.bskip||0)>500){c.bskip=now;TC.blog&&TC.blog.push({ev:"skip",t:now})}}
 function creStep(c,i,px,py,dt,W,now){const T=TC.touch;
  if(c.k=="shark"&&c.bite){const b=c.bite,e=(now-b.t0)/1000;// bite: lunge 0-150 ms, jaw opens 150-300, snaps 300-380, veers off 380-500
@@ -589,7 +601,7 @@ function creSchool(g,c,i,x,y,sc,a,ang,sy,bt,dt,rm,now,W){if(!c.F)c.F=SF.map(()=>
   if(fy<top){F.by+=top-fy;if(F.vy<0)F.vy=0;fy=top}if(fy>bot&&bot>top){F.by-=fy-bot;fy=bot}F.ax=fx;F.ay=fy;F.sc=sc;
   if(J&&J.k===k)continue;// the jumping fish is drawn by tcJump
   if(Math.abs(vx)>3)F.ff=vx<0?-1:1;const ff=F.ff||c.f;
-  {const m=12,x0=fx-5.2*sc-m,x1=fx+5.2*sc+m,y0=fy-3.4*sc-m,y1=fy+3.4*sc+m,h=B=>B&&x1>B[0]&&x0<B[0]+B[2]&&y1>B[1]&&y0<B[1]+B[3],ft=h(TC.bubR)||(TC.lrR||[]).some(h)?.4:1;F.fa=rm||F.fa==null?ft:F.fa+(ft-F.fa)*Math.min(1,dt*(ft<F.fa?20:10));F.ov=ft<1}// each fish fades on its own under the bubble or a label
+  {const m=12,x0=fx-5.2*sc-m,x1=fx+5.2*sc+m,y0=fy-3.4*sc-m,y1=fy+3.4*sc+m,h=B=>B&&x1>B[0]&&x0<B[0]+B[2]&&y1>B[1]&&y0<B[1]+B[3],ft=h(TC.bubR)||(TC.lrR||[]).some(h)?.4:1,hr=B=>B&&fx+5.2*sc>B[0]&&fx-5.2*sc<B[0]+B[2]&&fy+3.4*sc>B[1]&&fy-3.4*sc<B[1]+B[3];F.fa=rm||F.fa==null?ft:F.fa+(ft-F.fa)*(ft<F.fa&&(TC.layJ||hr(TC.bubR)||(TC.lrR||[]).some(hr))?1:Math.min(1,dt*(ft<F.fa?20:10)));F.ov=ft<1}// each fish fades on its own under the bubble or a label
   g.save();g.globalAlpha=a*F.fa;g.translate(fx,fy);g.scale(ff*sc,sc);if(fa)g.rotate(fa);if(rS){creFish(g,t+p,.62,1);g.strokeStyle=rS;g.lineWidth=1.5;g.stroke()}/* night rim sits behind the body, so only a thin band shows outside it */creFish(g,t+p,.62);if(oS){g.strokeStyle=oS;g.lineWidth=.9;g.stroke()}g.restore()}
  c.busy=busy}
 // press: the other school fish burst outward; the school fish nearest the press x jumps over it (1.5 s cooldown), avoiding labels/icons/marker/bubble
@@ -634,17 +646,18 @@ function tcCreatures(g,W,H,sy,at){const M=44,span=W+2*M,bt=H-5,now=performance.n
   const x0=xn+c.ox,yy0=(()=>{const s=Math.max(sy(x0-c.w),sy(x0),sy(x0+c.w));return c.ly!=null?c.ly:s+(bt-s)*c.d+c.oy})();// steer from where it was actually drawn
   if(rm)c.bite=null;else if(c.k=="shark"&&TC.touch&&dt>0)sharkPlan(c,x0,yy0,sy,bt,W,now);
   if(!rm&&dt>0)creStep(c,i,x0,yy0,dt,W,now);
-  const x=xn+c.ox,vxt=c.v+c.vx,sp=Math.hypot(c.vx,c.vy);if(!rm){if(Math.abs(vxt)>3)c.f=vxt<0?-1:1;c.ph+=dt*(1+sp/(c.k=="jelly"?22:45))}
+  const x=xn+c.ox,vxt=c.v+c.vx,sp=Math.hypot(c.vx,c.vy);if(!rm){if(c.k=="shark"){if(c.bite&&now-c.bite.t0<380){c.f=c.bite.f;c.fT=0}else if(Math.abs(vxt)>3){const sg=vxt<0?-1:1;if(sg!=c.f){c.fT=(c.fT||0)+dt;if(c.fT>=.25||Math.abs(vxt)>90){c.f=sg;c.fT=0}}else c.fT=0}}// shark turns only on a sustained (~250 ms) or strong change of direction
+   else if(Math.abs(vxt)>3)c.f=vxt<0?-1:1;c.ph+=dt*(1+sp/(c.k=="jelly"?22:45))}
   if(!rm&&(Math.abs(c.ox)>1.5||Math.abs(c.oy)>1.5||sp>4||c.bite))act=true;else if(!TC.touch){c.ox=c.oy=c.vx=c.vy=0}
   if(x<-M||x>W+M){c.ly=null;TC.creDbg.push({k:c.k,x,y:null,top:null});continue}
   const s0=Math.max(sy(x-c.w),sy(x),sy(x+c.w)),av=bt-s0,sc=Math.max(.55,Math.min(1,av/(2*c.h+18))),hh=c.h*sc;let lo=s0+hh+3,hi=bt-hh,shO=0,shR=0,shB=null;
-  if(c.k=="shark"){shO=rm?0:sharkO(c,now);shR=rm?0:Math.max(-.4,Math.min(.4,Math.atan2(c.vy,Math.abs(vxt)+20)))-shO*.122;shB=sharkBox(c.ph+i*1.7,shO,c.f,sc,shR);// full posed box: jaw, lifted snout, fins, tail sweep
+  if(c.k=="shark"){shO=rm?0:sharkO(c,now);shR=rm?0:(L=>Math.max(-L,Math.min(L,Math.atan2(c.vy,Math.abs(vxt)+20))))(c.bite?.15:.4)-shO*.122;shB=sharkBox(c.ph+i*1.7,shO,c.f,sc,shR);// full posed box: jaw, lifted snout, fins, tail sweep
    let sm=-1e9;for(let xx=x+shB[0];xx<=x+shB[1]+2.9;xx+=3)sm=Math.max(sm,sy(Math.min(xx,x+shB[1])));lo=sm-shB[2]+2;hi=bt-shB[3]}
   const al=Math.max(0,Math.min(1,(hi-lo+8)/8));if(al<=0){c.ly=null;TC.creDbg.push({k:c.k,x,y:null,top:null});continue}// no room at this x (very low water): fade out rather than poke out
   let y=lo+Math.max(0,hi-lo)*c.d+c.oy+Math.sin(at*(.7+i*.13)+i*2.1)*Math.min(c.k=="jelly"?5:2.5,Math.max(0,hi-lo)/2);const yc=Math.max(Math.min(y,hi),Math.min(lo,hi));
   if(yc!=y&&!rm){c.oy+=yc-y;c.vy=0}y=yc;c.ly=rm?null:y;// stay below the surface and above the bed
   const ang=c.k=="shark"?shR:c.k=="jelly"||rm?0:Math.max(-.4,Math.min(.4,Math.atan2(c.vy,Math.abs(vxt)+20)));
-  const hit=shB?B=>B&&x+shB[1]+4>B[0]&&x+shB[0]-4<B[0]+B[2]&&y+shB[3]+4>B[1]&&y+shB[2]-4<B[1]+B[3]:B=>B&&x+c.w*1.4*sc>B[0]&&x-c.w*1.4*sc<B[0]+B[2]&&y+hh+4>B[1]&&y-hh-4<B[1]+B[3],ov=hit(TC.bubR)||(TC.lrR||[]).some(hit),ft=ov?.4:1;/* readout bubble or a hi/lo label box */c.fa=rm||c.fa==null?ft:c.fa+(ft-c.fa)*Math.min(1,dt*(c.bite&&ft>c.fa?25:10));
+  const hit=shB?B=>B&&x+shB[1]+SH_FM>B[0]&&x+shB[0]-SH_FM<B[0]+B[2]&&y+shB[3]+SH_FM>B[1]&&y+shB[2]-SH_FM<B[1]+B[3]:B=>B&&x+c.w*1.4*sc+2>B[0]&&x-c.w*1.4*sc-2<B[0]+B[2]&&y+hh+6>B[1]&&y-hh-6<B[1]+B[3],ov=hit(TC.bubR)||(TC.lrR||[]).some(hit),ft=ov?.4:1,hr=shB?B=>B&&x+shB[1]>B[0]&&x+shB[0]<B[0]+B[2]&&y+shB[3]>B[1]&&y+shB[2]<B[1]+B[3]:B=>B&&x+c.w*sc>B[0]&&x-c.w*sc<B[0]+B[2]&&y+hh>B[1]&&y-hh<B[1]+B[3],snap=ov&&(TC.layJ||hr(TC.bubR)||(TC.lrR||[]).some(hr));/* already on the box (fast mover or a box jump): fade at once *//* readout bubble or a hi/lo label box */c.fa=rm||c.fa==null?ft:c.fa+(ft-c.fa)*(ft<c.fa&&snap?1:Math.min(1,dt*(ft<c.fa?20:c.bite?25:10)));// fade out fast, back in at the normal rate (faster during a bite)
   TC.creDbg.push({k:c.k,x,y,top:shB?y+shB[2]:y-hh,surf:s0,al,fa:c.fa,ov,sc,o:shO,box:shB&&[x+shB[0],y+shB[2],shB[1]-shB[0],shB[3]-shB[2]]});if(c.k=="shark")TC.sharkP={x,y};
   if(c.k=="school"){creSchool(g,c,i,x,y,sc,al,ang,sy,bt,dt,rm,now,W);if(c.busy)act=true;continue}
   g.save();g.globalAlpha=al*c.fa;g.translate(x,y);g.scale(c.k!="jelly"?c.f*sc:sc,sc);if(ang)g.rotate(ang);let jn=0;if(c.k=="jelly"&&c.cn){jn=creNK(x,W);c.nk=jn}g.fillStyle=g.strokeStyle=jn>0?creMix(creRGB(c.c),c.cn,jn):c.c;const t=c.ph+i*1.7;
@@ -711,6 +724,14 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  g.strokeStyle="rgba(224,255,255,.35)";g.beginPath();for(let x=-2;x<=W+2;x+=3){const y=sy(x)+3.5+Math.sin(x*.09+at*1.6)*.9;x<=-2?g.moveTo(x,y):g.lineTo(x,y)}g.stroke();
  for(let k=0;k<12;k++){const seed=k*97.13,bx=((seed*7.3)%1*W+((k*53)%W)+Math.sin(at*.8+k)*4)%W,cyc=(at*(.06+(k%4)*.015)+(seed%1))%1,byy=H-cyc*(H-top);
   if(byy>sy(bx)+6){g.fillStyle=`rgba(230,255,255,${.12+.1*(1-cyc)})`;g.beginPath();g.arc(bx,byy,1+(k%3)*.6,0,7);g.fill()}}
+// layout first: hi/lo label boxes and the readout bubble for THIS frame, so creatures fade against where they are drawn (no one-frame lag when a box jumps sides)
+ const LR=[],LXm=new Map();let BUB;{g.save();g.font="12px system-ui,sans-serif";const MID=[];{const m=new Date(ta);m.setHours(0,0,0,0);for(;+m<tb;m.setDate(m.getDate()+1))if(+m>ta)MID.push(X(+m))}
+  for(const [t,v,ty] of TC.hl){if(t<ta||t>tb)continue;const l1=v.toFixed(1)+" ft",l2=fmtT(new Date(t)),tw=Math.max(g.measureText(l1).width,g.measureText(l2).width),hw=tw/2+3,y=Y(v);
+  let x=X(t);const t0=X(t),LS2=TC.lside||(TC.lside={});for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3){const sd=lx!==cx?(t0<lx?-1:1):t0<lx-4?-1:t0>lx+4?1:(LS2[t]||(t0<lx?-1:1));if(lx===cx)LS2[t]=sd;x=sd<0?lx-hw-4:lx+hw+4}// hysteresis at the centre line: a jittering finger does not flip the label// keep center & midnight lines out of the label
+  x=Math.max(hw+2,Math.min(W-hw-2,x));for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3){const l=lx-hw-4,r=lx+hw+4;x=l>=hw+2?l:r}LR.push([x-hw,y-33,hw*2,30]);LXm.set(t,x)}
+  const v=tideAt(tc),cy=Y(v),l1=v.toFixed(2)+" ft",l2=fmtT(new Date(tc));g.font="bold 12px system-ui,sans-serif";const bw=Math.max(g.measureText(l1).width,g.measureText(l2).width)+14,hit=(x,y)=>x<2||x+bw>W-2||LR.some(r=>x<r[0]+r[2]&&x+bw>r[0]&&y<r[1]+r[3]&&y+36>r[1]);
+ let by=Math.max(cy-20,4),bx=cx+14;if(TC.bubS=="L"&&!hit(cx-14-bw,by))bx=cx-14-bw;/* keep the last side while it still fits */else if(hit(bx,by)){if(!hit(cx-14-bw,by))bx=cx-14-bw;else{by=Math.min(cy+14,H-80);bx=hit(cx+14,by)&&!hit(cx-14-bw,by)?cx-14-bw:(cx+14+bw>W-2?cx-14-bw:cx+14)}}
+ TC.bubS=bx<cx?"L":"R";TC.bubR=[bx,by,bw,36];TC.lrR=LR;BUB=[bx,by];{const P=TC.layP,N=[TC.bubR,...LR];TC.layJ=!P||P.length!=N.length||N.some((r,k)=>Math.abs(r[0]-P[k][0])+Math.abs(r[1]-P[k][1])>8);TC.layP=N}/* a box jumped this frame: whatever it lands on fades at once */g.restore()}
  {const c0=performance.now();tcCreatures(g,W,H,sy,at);tcJump(g,W,H,sy,0);g.restore();tcJump(g,W,H,sy,1);const dt=performance.now()-c0;TC.creMs=TC.creMs==null?dt:TC.creMs*.95+dt*.05}
  // crisp tide line on top of all texture
  g.beginPath();SY.forEach((y,i)=>i?g.lineTo(-2+i*2,y):g.moveTo(-2,y));g.strokeStyle="#b2f5ff";g.lineWidth=2;g.lineJoin="round";g.stroke();
@@ -723,10 +744,9 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  const dl=new Date(ta);dl.setHours(0,0,0,0);for(let t=+dl;t<tb;){const n=new Date(t);n.setDate(n.getDate()+1);g.font="bold 12px system-ui,sans-serif";const lab=new Date(t).toLocaleDateString([],{weekday:"short",month:"short",day:"numeric"}).toUpperCase(),tw=g.measureText(lab).width,x=Math.max(X(t)+4,4);
   if(x+tw+6<X(+n)&&x+tw<=W-4){g.textAlign="left";g.fillStyle="#fff";g.fillText(lab,x,top-24)}t=+n}
  // hi/lo labels
- g.textAlign="center";g.font="12px system-ui,sans-serif";const LR=[],MID=[];{const m=new Date(ta);m.setHours(0,0,0,0);for(;+m<tb;m.setDate(m.getDate()+1))if(+m>ta)MID.push(X(+m))}
+ g.textAlign="center";g.font="12px system-ui,sans-serif";
  for(const [t,v,ty] of TC.hl){if(t<ta||t>tb)continue;const l1=v.toFixed(1)+" ft",l2=fmtT(new Date(t)),tw=Math.max(g.measureText(l1).width,g.measureText(l2).width),hw=tw/2+3,y=Y(v);
-  let x=X(t);const t0=X(t);for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3)x=t0<lx?lx-hw-4:lx+hw+4;// keep center & midnight lines out of the label
-  x=Math.max(hw+2,Math.min(W-hw-2,x));for(const lx of [cx,...MID])if(Math.abs(x-lx)<hw+3){const l=lx-hw-4,r=lx+hw+4;x=l>=hw+2?l:r}LR.push([x-hw,y-33,hw*2,30]);g.save();g.shadowColor="rgba(0,0,0,.75)";g.shadowBlur=3;g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7);g.restore()}
+  const x=LXm.get(t);g.save();g.shadowColor="rgba(0,0,0,.75)";g.shadowBlur=3;g.fillStyle="#fff";g.fillText(l1,x,y-20);g.fillText(l2,x,y-7);g.restore()}
  // sun/moon markers (top strip): inline SVG icons, rasterized at 3x so they stay crisp on iPhone
  g.font="11px system-ui,sans-serif";
  TC.icoR=[];for(const [t,k] of TC.ev){if(t<ta||t>tb)continue;const x=X(t),sun=k[0]=="s",up=k[1]=="r",yy=sun?16:36,col=sun?(up?"#FFD54A":"#FF7043"):(up?"#FFFFFF":"#9AA3AD"),lab=(sun?"":up?"rise ":"set ")+fmtT(new Date(t)).replace(" ",""),ix=Math.max(2,Math.min(W-28-g.measureText(lab).width,x-24)),im=tcIcon(k);
@@ -739,8 +759,7 @@ function paintTC(){const cv=TC.cv;if(!cv||!cv.isConnected)return;const dpr=devic
  const v=tideAt(tc),cy=Y(v);g.setLineDash([3,4]);g.strokeStyle="rgba(255,255,255,.9)";g.lineWidth=1;g.beginPath();g.moveTo(cx,top-4);g.lineTo(cx,H);g.stroke();g.setLineDash([]);
  g.beginPath();g.arc(cx,cy,9,0,7);g.fillStyle="#e9f37a";g.fill();
  const l1=v.toFixed(2)+" ft",l2=fmtT(new Date(tc));g.font="bold 12px system-ui,sans-serif";const bw=Math.max(g.measureText(l1).width,g.measureText(l2).width)+14,hit=(x,y)=>x<2||x+bw>W-2||LR.some(r=>x<r[0]+r[2]&&x+bw>r[0]&&y<r[1]+r[3]&&y+36>r[1]);
- let by=Math.max(cy-20,4),bx=cx+14;if(hit(bx,by)){if(!hit(cx-14-bw,by))bx=cx-14-bw;else{by=Math.min(cy+14,H-80);bx=hit(cx+14,by)&&!hit(cx-14-bw,by)?cx-14-bw:(cx+14+bw>W-2?cx-14-bw:cx+14)}}
- TC.bubR=[bx,by,bw,36];TC.lrR=LR;TC.obs=[...LR,...TC.icoR,TC.bubR,[cx-10,cy-10,20,20]];g.fillStyle="rgba(40,60,75,.88)";g.beginPath();g.roundRect?g.roundRect(bx,by,bw,36,7):g.rect(bx,by,bw,36);g.fill();g.fillStyle="#e9f37a";g.textAlign="left";g.fillText(l1,bx+7,by+15);g.fillText(l2,bx+7,by+30);
+ const [bx,by]=BUB;TC.obs=[...LR,...TC.icoR,TC.bubR,[cx-10,cy-10,20,20]];g.fillStyle="rgba(40,60,75,.88)";g.beginPath();g.roundRect?g.roundRect(bx,by,bw,36,7):g.rect(bx,by,bw,36);g.fill();g.fillStyle="#e9f37a";g.textAlign="left";g.fillText(l1,bx+7,by+15);g.fillText(l2,bx+7,by+30);
  // readout
  const d=new Date(tc),nh=TC.hl.find(x=>x[0]>tc),dk=d.toDateString();
  const il=moonIllum(d),cc=moonClouds(tc),nofc=cc==null&&!!TC.wxMap;drawMoon($("tcMoonC"),il.fraction,il.phase<.5,cc,nofc);$("tcMoonC").title=nofc?"Past the cloud forecast: shown without clouds, dimmed":"";

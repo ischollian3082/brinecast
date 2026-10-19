@@ -50,6 +50,9 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 .tc .note{font-size:11px;color:#a9c3d6}
 .locked{text-align:center;padding:20px}
 #viewTitle{font-size:13px;color:var(--mut)}
+#wmWrap{position:relative;height:420px;border-radius:10px;overflow:hidden;background:#0b1622}#wmMap{position:absolute;inset:0;background:#0b1622}.wmTiles{filter:brightness(.55) saturate(.7)}
+#wmLeg{position:absolute;right:6px;top:6px;z-index:500;background:rgba(10,20,30,.78);color:#fff;border-radius:8px;padding:3px 6px;font-size:11px;display:flex;gap:5px;align-items:center;pointer-events:none}#wmLeg i{display:inline-block;width:10px;height:4px;border-radius:2px;margin-right:2px;vertical-align:middle}
+#wmMsg{display:none;position:absolute;left:10px;right:10px;top:10px;z-index:600;background:rgba(10,20,30,.9);color:#fff;border-radius:8px;padding:8px;font-size:14px}.wmBar{display:flex;gap:8px;align-items:center;margin:8px 0 2px}.wmBar input{flex:1}#wmLbl{min-width:118px;text-align:right;font-weight:700;font-size:14px}#wmRead{margin-top:6px;font-size:15px}#windmap .leaflet-container{font:12px system-ui,sans-serif}
 </style>
 </head><body>
 <header>
@@ -69,6 +72,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </header>
 <main>
  <section class="card" id="now"><h2>Now</h2><div class="mut">Pick a location…</div></section>
+ <section class="card" id="windmap"><h2>Wind map · knots</h2><div id="wmWrap"><div id="wmMap"></div><div id="wmLeg"></div><div id="wmMsg"></div></div><div class="wmBar"><input type="range" id="wmT" min="0" max="0" value="0" aria-label="Forecast hour"><span id="wmLbl">…</span></div><div class="mut" id="wmModel"></div><div id="wmRead"></div></section>
  <section class="card" id="wind"><h2>Wind (mph)</h2><div class="mut">—</div></section>
  <section class="card" id="pressure"><h2>Barometric pressure</h2><div class="mut">—</div></section>
  <section class="card" id="gonogo"><h2>Go / No-Go</h2><div class="mut">—</div></section>
@@ -90,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.22 · Oct 18 2026";// bump on every push
+const BUILD="v0.9.23 · Oct 19 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -196,7 +200,7 @@ $("fav").onclick=()=>{if(!S.loc)return;const f=LS.get("favs",[]);if(f.some(x=>x.
 $("refresh").onclick=()=>S.loc&&loadAll();
 
 /* ---------- data ---------- */
-function loadAll(){S.tideP=null;S.curr=null;S.wt=null;S.buoy={};S.marine=null;renderSummary();const{lat,lon}=S.loc;$("updated").textContent="Updated "+fmtT(new Date());
+function loadAll(){if(S.view=="wind")setTimeout(()=>wmShow(),0);S.tideP=null;S.curr=null;S.wt=null;S.buoy={};S.marine=null;renderSummary();const{lat,lon}=S.loc;$("updated").textContent="Updated "+fmtT(new Date());
  loadWeather(lat,lon);loadMarine(lat,lon);loadTides(lat,lon);loadAlerts(lat,lon);renderSky(lat,lon);loadBuoy(lat,lon);loadCurrents(lat,lon);loadWaterTemp(lat,lon)}
 async function loadWeather(lat,lon){S.wxErr=0;
  try{const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat}&longitude=${lon}&current=temperature_2m,apparent_temperature,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl,cloud_cover,precipitation&hourly=temperature_2m,precipitation_probability,cloud_cover,weather_code,wind_speed_10m,wind_direction_10m,wind_gusts_10m,pressure_msl&daily=weather_code,temperature_2m_max,temperature_2m_min,precipitation_probability_max,wind_speed_10m_max,wind_gusts_10m_max,wind_direction_10m_dominant&wind_speed_unit=mph&temperature_unit=fahrenheit&precipitation_unit=inch&timezone=auto&timeformat=unixtime&past_days=1&forecast_days=16`;
@@ -380,12 +384,12 @@ $("lexport").onclick=()=>{const L=LS.get("catches",[]),k=["time","spot","lat","l
 const FEATURES={weather:"free",wind:"free",pressure:"free",tides:"free",seas:"free",buoy:"free",sky:"free",gonogo:"pro",currents:"pro",watertemp:"free",solunar:"free",log:"free"};
 const PRO_ENABLED=true;
 const can=f=>(FEATURES[f]||"free")=="free"||PRO_ENABLED;
-const VIEWS=[["weather","Weather",["now","forecast"]],["gonogo","Go / No-Go",["gonogo"]],["wind","Wind",["wind"]],["pressure","Pressure",["pressure"]],["tides","Tides",["tides","currents"]],["currents","Currents",["currents"]],["seas","Seas",["marine"]],["buoy","Live Buoy",["buoy"]],["sky","Sun & Moon",["sky"]],["solunar","Solunar",["solunar"],1],["log","Catch Log",["log"],1]];
+const VIEWS=[["weather","Weather",["now","forecast"]],["gonogo","Go / No-Go",["gonogo"]],["wind","Wind",["windmap","wind"]],["pressure","Pressure",["pressure"]],["tides","Tides",["tides","currents"]],["currents","Currents",["currents"]],["seas","Seas",["marine"]],["buoy","Live Buoy",["buoy"]],["sky","Sun & Moon",["sky"]],["solunar","Solunar",["solunar"],1],["log","Catch Log",["log"],1]];
 function show(v){let V=VIEWS.find(x=>x[0]==v)||VIEWS[0];if(V[3]&&!LS.get("extras",true))V=VIEWS[0];
  const ok=can(V[0]);document.querySelectorAll("main section.card").forEach(s=>s.classList.toggle("show",ok&&V[2].includes(s.id)));
  let lk=$("lockedCard");if(!lk){lk=document.createElement("section");lk.id="lockedCard";lk.className="card locked";document.querySelector("main").prepend(lk)}
  lk.style.display=ok?"none":"block";lk.innerHTML=`<h2>${esc(V[1])}</h2><div class="mut">This feature is part of Brinecast Pro.</div>`;
- S.view=V[0];document.body.dataset.view=V[0];$("viewTitle").textContent="Brinecast · "+V[1];LS.set("view",V[0]);renderMenu();closeMenu();scrollTo(0,0)}
+ S.view=V[0];document.body.dataset.view=V[0];if(V[0]=="wind"&&ok)setTimeout(()=>wmShow(),0);else wmHide();$("viewTitle").textContent="Brinecast · "+V[1];LS.set("view",V[0]);renderMenu();closeMenu();scrollTo(0,0)}
 function renderMenu(){const ex=LS.get("extras",true),it=x=>`<a data-v="${x[0]}" class="${x[0]==S.view?"on":""}">${esc(x[1])}${can(x[0])?"":" 🔒"}</a>`;
  $("menu").innerHTML=VIEWS.filter(x=>!x[3]).map(it).join("")+`<div class="sep">Fishing extras</div>`+(ex?VIEWS.filter(x=>x[3]).map(it).join(""):"")+`<label><input type="checkbox" id="exTog" ${ex?"checked":""}> Show fishing extras</label>`;
  $("exTog").onchange=e=>{LS.set("extras",e.target.checked);if(!e.target.checked&&VIEWS.find(x=>x[0]==S.view)[3])show("weather");else renderMenu()}}
@@ -852,6 +856,269 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
  add("manifest","data:application/manifest+json,"+encodeURIComponent(JSON.stringify(m)))})();
 
 /* ---------- start ---------- */
+/* ---- WindFlow by Coder (/workspace/brinecast/windflow.js), inlined ---- */
+/* WindFlow — animated wind-particle layer for Leaflet 1.9. No other deps.
+   Field: u (east), v (north) in knots, blow-toward, row-major [iLat*nLon+iLon].
+   lat = lat0 + iLat*dLat, lon = lon0 + iLon*dLon (dLat/dLon may be negative). */
+(function (root) {
+  'use strict';
+  var legendStops = [[0,'#6e8fb0'],[5,'#3fb6c8'],[10,'#4fd17a'],[15,'#e6e04a'],[20,'#f2a33a'],[25,'#ec5a3c'],[30,'#c83cc8']];
+  function hex(c){return [parseInt(c.substr(1,2),16),parseInt(c.substr(3,2),16),parseInt(c.substr(5,2),16)];}
+  var RGB = legendStops.map(function(s){return hex(s[1]);});
+  function colorFor(kt){
+    kt = +kt; if (!(kt > 0)) kt = 0;
+    if (kt >= 30) return legendStops[6][1];
+    var i = Math.floor(kt/5), f = (kt - i*5)/5, a = RGB[i], b = RGB[i+1];
+    var h='#'; for (var c=0;c<3;c++){ var x=Math.round(a[c]+(b[c]-a[c])*f); h+=(x<16?'0':'')+x.toString(16); } return h;
+  }
+  // 32 color buckets (0..31 kt) so particles batch into few strokes
+  var NB = 32, BUCKET = []; for (var k=0;k<NB;k++) BUCKET.push(colorFor(k));
+
+  function sampleField(F, lat, lon, out){
+    var fy=(lat-F.lat0)/F.dLat, fx=(lon-F.lon0)/F.dLon;
+    if (!(fx>=0 && fy>=0 && fx<=F.nLon-1 && fy<=F.nLat-1)) return false;
+    var x0=Math.min(Math.floor(fx),F.nLon-2), y0=Math.min(Math.floor(fy),F.nLat-2);
+    if (F.nLon<2) x0=0; if (F.nLat<2) y0=0;
+    var tx=F.nLon<2?0:fx-x0, ty=F.nLat<2?0:fy-y0, n=F.nLon;
+    var i00=y0*n+x0, i01=i00+(F.nLon<2?0:1), i10=i00+(F.nLat<2?0:n), i11=i10+(F.nLon<2?0:1);
+    var u=F.u, v=F.v;
+    out[0]=(u[i00]*(1-tx)+u[i01]*tx)*(1-ty)+(u[i10]*(1-tx)+u[i11]*tx)*ty;
+    out[1]=(v[i00]*(1-tx)+v[i01]*tx)*(1-ty)+(v[i10]*(1-tx)+v[i11]*tx)*ty;
+    return isFinite(out[0]) && isFinite(out[1]);
+  }
+
+  function create(map, opts){
+    opts = opts || {};
+    var PX_PER_KT_S = opts.pxPerKtPerSec || 3;      // fixed visual scale: 10 kt = 30 css px/s at any zoom
+    var MAX_AGE = opts.maxAge || 90;                 // frames
+    var FADE = opts.fade || 0.92;                    // trail retention per frame
+    var LINE_W = opts.lineWidth || 1.3;
+    var reduced = opts.reducedMotion != null ? !!opts.reducedMotion :
+      !!(root.matchMedia && root.matchMedia('(prefers-reduced-motion: reduce)').matches);
+    var dpr = Math.min(root.devicePixelRatio || 1, 2);
+    var canvas = document.createElement('canvas');
+    canvas.className = 'windflow-canvas';
+    var cs = canvas.style; cs.position='absolute'; cs.left='0'; cs.top='0'; cs.pointerEvents='none'; cs.zIndex = opts.zIndex || 450;
+    var pane = map.getContainer(); pane.appendChild(canvas);   // container-fixed, above tiles/overlay panes
+    var ctx = canvas.getContext('2d');
+    var W=0,H=0, field=null, parts=null, N=0, running=false, wanted=false, raf=0, lastT=0;
+    var visible = !document.hidden, inView = true, moving=false, io=null;
+    var tmp=[0,0], stats={frames:0, avgMs:0, particles:0, drawn:0};
+    var bounds=null; // pixel rect of field within view
+
+    function size(){
+      var s = map.getSize(); W=s.x; H=s.y; dpr=Math.min(root.devicePixelRatio||1,2);
+      canvas.width=Math.round(W*dpr); canvas.height=Math.round(H*dpr); cs.width=W+'px'; cs.height=H+'px';
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+    }
+    function count(){
+      var phone = W*H < 500*900 || /Mobi|Android|iPhone/i.test(navigator.userAgent||'');
+      var n = Math.round(W*H/220);                       // ~1 per 220 css px²
+      var lo = phone?800:1500, hi = phone?1400:2500;
+      if (opts.particles) return opts.particles;
+      return Math.max(lo, Math.min(hi, n));
+    }
+    function fieldRect(){
+      if (!field) return null;
+      var la1=field.lat0, la2=field.lat0+(field.nLat-1)*field.dLat, lo1=field.lon0, lo2=field.lon0+(field.nLon-1)*field.dLon;
+      var a=map.latLngToContainerPoint([Math.max(la1,la2),Math.min(lo1,lo2)]), b=map.latLngToContainerPoint([Math.min(la1,la2),Math.max(lo1,lo2)]);
+      var x0=Math.max(0,a.x), y0=Math.max(0,a.y), x1=Math.min(W,b.x), y1=Math.min(H,b.y);
+      return (x1>x0&&y1>y0)?{x0:x0,y0:y0,x1:x1,y1:y1}:null;
+    }
+    // Per-pixel velocity in css px/s using local projection scale (so direction is exact under Mercator)
+    var degPx = {lat:0, lon:0};
+    function updateScale(){
+      var c = map.getCenter(), p = map.latLngToContainerPoint(c);
+      var pn = map.latLngToContainerPoint([c.lat+0.01, c.lng]), pe = map.latLngToContainerPoint([c.lat, c.lng+0.01]);
+      degPx.lat = (pn.y-p.y)/0.01; degPx.lon=(pe.x-p.x)/0.01; // lat px per deg is negative (y down)
+    }
+    function spawn(i){
+      var b=bounds; parts[i*5]=b.x0+Math.random()*(b.x1-b.x0); parts[i*5+1]=b.y0+Math.random()*(b.y1-b.y0);
+      parts[i*5+2]=Math.floor(Math.random()*MAX_AGE);
+    }
+    function reseed(){
+      size(); updateScale(); bounds=fieldRect(); ctx.clearRect(0,0,W,H);
+      N = count(); parts = new Float32Array(N*5); stats.particles=N;
+      if (!bounds) return;
+      for (var i=0;i<N;i++) spawn(i);
+      if (reduced) drawStatic();
+    }
+    // velocity at container px, returns kt in tmp[2]
+    function velAt(x,y){
+      var ll = map.containerPointToLatLng([x,y]);
+      if (!sampleField(field, ll.lat, ll.lng, tmp)) return false;
+      tmp[2]=Math.sqrt(tmp[0]*tmp[0]+tmp[1]*tmp[1]); return true;
+    }
+    var paths = []; for (var k2=0;k2<NB;k2++) paths.push([]);
+    function step(dt){
+      // fade trails
+      ctx.globalCompositeOperation='destination-in'; ctx.fillStyle='rgba(0,0,0,'+FADE+')'; ctx.fillRect(0,0,W,H);
+      ctx.globalCompositeOperation='source-over';
+      if (!bounds) return;
+      var k, s = PX_PER_KT_S*dt;
+      for (k=0;k<NB;k++) paths[k].length=0;
+      var drawn=0;
+      for (var i=0;i<N;i++){
+        var o=i*5, x=parts[o], y=parts[o+1];
+        if (parts[o+2]++ > MAX_AGE || !velAt(x,y)) { spawn(i); parts[o+2]=0; continue; }
+        // u east -> +x ; v north -> -y (screen y grows downward)
+        var nx = x + tmp[0]*s, ny = y - tmp[1]*s;
+        if (nx<bounds.x0||nx>bounds.x1||ny<bounds.y0||ny>bounds.y1){ spawn(i); parts[o+2]=0; continue; }
+        var b=Math.min(NB-1, tmp[2]|0); paths[b].push(x,y,nx,ny); drawn++;
+        parts[o]=nx; parts[o+1]=ny;
+      }
+      stats.drawn=drawn;
+      ctx.lineWidth=LINE_W; ctx.lineCap='round';
+      for (k=0;k<NB;k++){ var p=paths[k]; if(!p.length) continue;
+        ctx.strokeStyle=BUCKET[k]; ctx.beginPath();
+        for (var j=0;j<p.length;j+=4){ ctx.moveTo(p[j],p[j+1]); ctx.lineTo(p[j+2],p[j+3]); }
+        ctx.stroke(); }
+    }
+    function drawStatic(){
+      ctx.clearRect(0,0,W,H); if(!field||!bounds) return;
+      var g = opts.arrowSpacing || 36; ctx.lineWidth=1.5; ctx.lineCap='round';
+      for (var y=bounds.y0+g/2;y<bounds.y1;y+=g) for (var x=bounds.x0+g/2;x<bounds.x1;x+=g){
+        if(!velAt(x,y)||tmp[2]<0.05) continue;
+        var L=Math.min(g*0.8, 6+tmp[2]*0.8), ux=tmp[0]/tmp[2], uy=-tmp[1]/tmp[2];
+        var ex=x+ux*L/2, ey=y+uy*L/2, sx=x-ux*L/2, sy=y-uy*L/2;
+        ctx.strokeStyle=colorFor(tmp[2]); ctx.beginPath(); ctx.moveTo(sx,sy); ctx.lineTo(ex,ey);
+        ctx.moveTo(ex,ey); ctx.lineTo(ex-ux*5-uy*3.5, ey-uy*5+ux*3.5);
+        ctx.moveTo(ex,ey); ctx.lineTo(ex-ux*5+uy*3.5, ey-uy*5-ux*3.5); ctx.stroke();
+      }
+    }
+    function frame(t){
+      raf=0; if(!shouldRun()) { running=false; return; }
+      var dt = lastT ? Math.min(0.05,(t-lastT)/1000) : 1/60; lastT=t;
+      var t0=performance.now(); step(dt); var ms=performance.now()-t0;
+      stats.frames++; stats.avgMs += (ms-stats.avgMs)/Math.min(stats.frames,60);
+      raf=requestAnimationFrame(frame);
+    }
+    function shouldRun(){ return wanted && !reduced && visible && inView && !moving && !!field; }
+    function kick(){ if (shouldRun() && !raf){ running=true; lastT=0; raf=requestAnimationFrame(frame); }
+                     else if (!shouldRun() && raf){ cancelAnimationFrame(raf); raf=0; running=false; } }
+    function onMoveStart(){ moving=true; ctx.clearRect(0,0,W,H); kick(); }
+    function onMoveEnd(){ moving=false; reseed(); kick(); }
+    function onVis(){ visible=!document.hidden; kick(); }
+    function onMQ(e){ reduced=e.matches; reseed(); kick(); }
+    map.on('movestart zoomstart', onMoveStart); map.on('moveend zoomend resize', onMoveEnd);
+    document.addEventListener('visibilitychange', onVis);
+    var mq = opts.reducedMotion==null && root.matchMedia ? root.matchMedia('(prefers-reduced-motion: reduce)') : null;
+    if (mq && mq.addEventListener) mq.addEventListener('change', onMQ);
+    if (root.IntersectionObserver){ io=new IntersectionObserver(function(es){ inView = es[es.length-1].isIntersecting; kick(); }); io.observe(map.getContainer()); }
+    size();
+
+    return {
+      setField: function(f){
+        if (!f || !(f.nLat>=1 && f.nLon>=1) || f.u.length < f.nLat*f.nLon || f.v.length < f.nLat*f.nLon) throw new Error('WindFlow.setField: bad field');
+        field = f; reseed(); kick();
+      },
+      start: function(){ wanted=true; if (reduced) drawStatic(); kick(); },
+      stop: function(){ wanted=false; kick(); },
+      destroy: function(){ wanted=false; kick(); map.off('movestart zoomstart',onMoveStart); map.off('moveend zoomend resize',onMoveEnd);
+        document.removeEventListener('visibilitychange',onVis); if(mq&&mq.removeEventListener) mq.removeEventListener('change',onMQ);
+        if(io) io.disconnect(); if(canvas.parentNode) canvas.parentNode.removeChild(canvas); field=null; parts=null; },
+      sample: function(lat,lon){ var o=[0,0]; if(!field||!sampleField(field,lat,lon,o)) return null;
+        var kt=Math.hypot(o[0],o[1]); return {u:o[0],v:o[1],kt:kt, fromDeg:(Math.atan2(-o[0],-o[1])*180/Math.PI+360)%360}; },
+      isRunning: function(){ return running; },
+      stats: stats, canvas: canvas,
+      _step: function(dt){ step(dt); }, _parts: function(){ return parts; }
+    };
+  }
+
+  // Pure self-test: integrates particles through uniform fields with the same math as step().
+  function _selfTest(){
+    var res = {pass:true, checks:[]};
+    function run(name, u, v, expect){
+      var F={lat0:33,lon0:-80,dLat:0.5,dLon:0.5,nLat:5,nLon:5,u:new Float32Array(25).fill(u),v:new Float32Array(25).fill(v)};
+      var o=[0,0], ok=sampleField(F,33.9,-79.3,o);
+      var dx=o[0]*3*0.1, dy=-o[1]*3*0.1;   // same as step(): +x east, -y for north
+      var pass = ok && expect(dx,dy);
+      res.checks.push({name:name,u:u,v:v,dx:+dx.toFixed(3),dy:+dy.toFixed(3),pass:pass}); if(!pass) res.pass=false;
+    }
+    run('north wind (from 0°) streams south: v=-10 -> dy>0', 0, -10, function(dx,dy){return dy>0 && Math.abs(dx)<1e-9;});
+    run('east-blowing u=+10 -> dx>0', 10, 0, function(dx,dy){return dx>0 && Math.abs(dy)<1e-9;});
+    run('SW wind (from 225°) streams NE: u=+7.07,v=+7.07 -> dx>0,dy<0', 7.07, 7.07, function(dx,dy){return dx>0&&dy<0;});
+    var c = colorFor(0)===legendStops[0][1] && colorFor(45)===legendStops[6][1];
+    res.checks.push({name:'colorFor endpoints', pass:c}); if(!c) res.pass=false;
+    return res;
+  }
+
+  root.WindFlow = {create:create, colorFor:colorFor, legendStops:legendStops, _selfTest:_selfTest, _sampleField:sampleField};
+})(typeof window!=='undefined'?window:this);
+
+// ===== Wind map (v0.9.23): Leaflet map + Open-Meteo grid + WindFlow moving lines =====
+// Times: Open-Meteo returns unixtime (UTC seconds); every label is formatted in America/New_York via Intl, so EDT->EST (Nov 1) is handled.
+const WM={map:null,wf:null,mk:null,area:null,cache:new Map(),hi:0,loadP:null,locKey:"",exactSeq:0};
+const WM_N=11,WM_SPAN_MI=130;// 11x11 grid over ~130 mi (view is ~100 mi across)
+const WM_TZ="America/New_York",wmFmt=new Intl.DateTimeFormat("en-US",{timeZone:WM_TZ,weekday:"short",hour:"numeric",timeZoneName:"short"});
+function wmLabel(ms){const p=Object.fromEntries(wmFmt.formatToParts(new Date(ms)).map(x=>[x.type,x.value]));return `${p.weekday} ${p.hour} ${p.dayPeriod} ${p.timeZoneName}`}
+const WM_CARD=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"],wmCard=d=>WM_CARD[Math.round(((d%360)+360)%360/22.5)%16];
+// meteorological "from" direction -> blow-toward components. A north wind (dir 0) gives v<0: it streams south.
+const wmUV=(spd,dir)=>{const r=dir*Math.PI/180;return[-spd*Math.sin(r),-spd*Math.cos(r)]};
+function wmLoadLeaflet(){if(window.L)return Promise.resolve();if(WM.loadP)return WM.loadP;
+ WM.loadP=new Promise((res,rej)=>{const c=document.createElement("link");c.rel="stylesheet";c.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";c.integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";c.crossOrigin="";document.head.appendChild(c);
+  const s=document.createElement("script");s.src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";s.integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";s.crossOrigin="";s.onload=()=>res();s.onerror=()=>{WM.loadP=null;rej(new Error("map library didn't load"))};document.head.appendChild(s)});return WM.loadP}
+function wmMsg(t,retry){const m=$("wmMsg");m.style.display=t?"block":"none";m.innerHTML=t?esc(t)+(retry?' <button id="wmRetry">Retry</button>':""):"";if(retry)$("wmRetry").onclick=()=>{wmMsg("");if(WM.map&&window.L){WM.area=null;wmEnsureArea()}else wmShow(true)}}
+function wmAreaFor(lat,lon){const dl=WM_SPAN_MI/69,dn=dl/Math.cos(lat*Math.PI/180),q=x=>Math.round(x*4)/4;// snap the area centre to 0.25 deg so the cache is reused
+ const la=q(lat),lo=q(lon);return{key:la+","+lo,lat0:la+dl/2,lon0:lo-dn/2,dLat:-dl/(WM_N-1),dLon:dn/(WM_N-1),nLat:WM_N,nLon:WM_N,cLat:la,cLon:lo,dl,dn}}
+async function wmFetchJ(u,ms=20000){const ac=new AbortController(),t=setTimeout(()=>ac.abort(),ms);try{const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error("HTTP "+r.status+" from Open-Meteo");return await r.json()}catch(e){throw e.name=="AbortError"?new Error("Open-Meteo timed out"):e}finally{clearTimeout(t)}}
+const WM_Q="&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime";
+// one multi-point request per model: HRRR (3 km, ~18-48 h) and best_match for the rest; merged hour by hour
+function wmLoadArea(A){const C=WM.cache.get(A.key);if(C&&Date.now()-C.at<30*6e4)return Promise.resolve(C);WM.inf=WM.inf||new Map();if(WM.inf.has(A.key))return WM.inf.get(A.key);// one request in flight per area
+ const P=wmLoadArea2(A).finally(()=>WM.inf.delete(A.key));WM.inf.set(A.key,P);return P}
+async function wmLoadArea2(A){const la=[],lo=[];
+ for(let i=0;i<A.nLat;i++)for(let j=0;j<A.nLon;j++){la.push((A.lat0+i*A.dLat).toFixed(3));lo.push((A.lon0+j*A.dLon).toFixed(3))}
+ const base=`https://api.open-meteo.com/v1/forecast?latitude=${la.join(",")}&longitude=${lo.join(",")}${WM_Q}`;
+ const [bm,hr]=await Promise.all([wmFetchJ(base+"&forecast_days=7"),wmFetchJ(base+"&forecast_days=3&models=ncep_hrrr_conus").catch(e=>(console.warn("HRRR unavailable, using best_match only:",e.message),null))]);
+ const P=Array.isArray(bm)?bm:[bm],Q=hr?(Array.isArray(hr)?hr:[hr]):null,T=P[0].hourly.time.map(x=>x*1000),n=P.length,hrI=new Map();if(Q)Q[0].hourly.time.forEach((t,k)=>hrI.set(t*1000,k));
+ const H=T.map((t,k)=>{const kh=hrI.get(t);let src=P,kk=k,model="best_match";
+   if(Q&&kh!=null&&Q.every(p=>p.hourly.wind_speed_10m[kh]!=null&&p.hourly.wind_direction_10m[kh]!=null)){src=Q;kk=kh;model="hrrr"}
+   if(!src.every(p=>p.hourly.wind_speed_10m[kk]!=null))return null;
+   const u=new Float32Array(n),v=new Float32Array(n),s=new Float32Array(n),g=new Float32Array(n),d=new Float32Array(n);
+   src.forEach((p,i)=>{const h=p.hourly;s[i]=h.wind_speed_10m[kk];d[i]=h.wind_direction_10m[kk];g[i]=h.wind_gusts_10m[kk]??NaN;[u[i],v[i]]=wmUV(s[i],d[i])});
+   return{t,model,field:{lat0:A.lat0,lon0:A.lon0,dLat:A.dLat,dLon:A.dLon,nLat:A.nLat,nLon:A.nLon,u,v},s,g,d}}).filter(Boolean);
+ const R={A,H,at:Date.now()};WM.cache.set(A.key,R);if(WM.cache.size>6)WM.cache.delete(WM.cache.keys().next().value);return R}
+const wmModelName=m=>m=="hrrr"?"NOAA HRRR 3 km (high-res US model)":"Open-Meteo best match (GFS/ECMWF blend)";
+function wmSetHour(k){const R=WM.area;if(!R||!R.H.length)return;WM.hi=Math.max(0,Math.min(R.H.length-1,k));const h=R.H[WM.hi];$("wmT").value=WM.hi;
+ $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").textContent="Model: "+wmModelName(h.model)+" · Open-Meteo, "+WM_N+"×"+WM_N+" grid";WM.wf.setField(h.field);WM.wf.start();if(WM.tap)wmReadout(WM.tap.lat,WM.tap.lng,false)}
+function wmGrid(R,lat,lon,arr){// bilinear on a scalar grid (gusts)
+ const A=R.A,fy=(lat-A.lat0)/A.dLat,fx=(lon-A.lon0)/A.dLon;if(!(fx>=0&&fy>=0&&fx<=A.nLon-1&&fy<=A.nLat-1))return NaN;const x0=Math.min(Math.floor(fx),A.nLon-2),y0=Math.min(Math.floor(fy),A.nLat-2),tx=fx-x0,ty=fy-y0,n=A.nLon,i=y0*n+x0;
+ return(arr[i]*(1-tx)+arr[i+1]*tx)*(1-ty)+(arr[i+n]*(1-tx)+arr[i+n+1]*tx)*ty}
+async function wmReadout(lat,lon,fetchExact=true){const R=WM.area;if(!R)return;const h=R.H[WM.hi],s=WM.wf.sample(lat,lon),el=$("wmRead");WM.tap={lat,lng:lon};
+ if(WM.tapMk)WM.tapMk.setLatLng([lat,lon]);else WM.tapMk=L.circleMarker([lat,lon],{radius:5,color:"#fff",weight:2,fillOpacity:0}).addTo(WM.map);
+ const where=`${lat.toFixed(3)}, ${lon.toFixed(3)}`;
+ if(!s){el.innerHTML=`<b>${where}</b> is outside the loaded wind grid. Pan there and the grid reloads.`;return}
+ const g=wmGrid(R,lat,lon,h.g),line=(kt,gu,from,tag)=>`<div><b>${Math.round(kt)} kt</b>${isFinite(gu)?`, gusts ${Math.round(gu)} kt`:""} from <b>${wmCard(from)} (${Math.round(from)}°)</b> <span class="mut">${tag}</span></div>`;
+ el.dataset.grid=JSON.stringify({kt:+s.kt.toFixed(1),gust:+g.toFixed(1),from:Math.round(s.fromDeg)});
+ el.innerHTML=`<div class="mut">${where} · ${wmLabel(h.t)}</div>`+line(s.kt,g,s.fromDeg,"interpolated from the "+WM_N+"×"+WM_N+" grid")+(fetchExact?'<div class="mut" id="wmEx">Fetching the exact point…</div>':el.querySelector("#wmEx")?.outerHTML||"");
+ if(!fetchExact){const ex=el.querySelector("#wmEx");if(ex)ex.textContent="(exact value: tap again for this hour)";return}
+ const seq=++WM.exactSeq;try{const j=await wmFetchJ(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}${WM_Q}&forecast_days=7`+(h.model=="hrrr"?"&models=ncep_hrrr_conus&forecast_days=3":""),15000);
+  if(seq!=WM.exactSeq)return;const k=j.hourly.time.indexOf(h.t/1000),ex=$("wmEx");if(!ex)return;
+  if(k<0||j.hourly.wind_speed_10m[k]==null){ex.textContent="Exact point: no value for this hour";return}
+  const H=j.hourly;ex.outerHTML=line(H.wind_speed_10m[k],H.wind_gusts_10m[k],H.wind_direction_10m[k],"exact point ("+(h.model=="hrrr"?"HRRR":"best match")+")").replace("<div>",'<div id="wmEx" data-kt="'+H.wind_speed_10m[k]+'" data-from="'+H.wind_direction_10m[k]+'">')}
+ catch(e){if(seq==WM.exactSeq&&$("wmEx"))$("wmEx").textContent="Exact point unavailable ("+e.message+"); grid value shown"}}
+async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng);if(WM.area&&WM.area.A.key==A.key)return;
+ // keep the current area while the view centre is still well inside it (refetch only on large pans)
+ if(WM.area){const B=WM.area.A;if(Math.abs(c.lat-B.cLat)<B.dl*.25&&Math.abs(c.lng-B.cLon)<B.dn*.25)return}
+ const t0=WM.area?WM.area.H[WM.hi]?.t:null;wmMsg("Loading wind…");
+ try{const R=await wmLoadArea(A);if(!R.H.length)throw new Error("no wind hours returned");WM.area=R;const now=Math.floor(Date.now()/36e5)*36e5;let k=R.H.findIndex(h=>h.t==(t0??now));if(k<0)k=Math.max(0,R.H.findIndex(h=>h.t>=now));
+  const k0=Math.max(0,R.H.findIndex(h=>h.t>=now));// slider runs from the current hour to the end of the data
+  WM.k0=k0;$("wmT").min=k0;$("wmT").max=R.H.length-1;wmMsg("");wmSetHour(Math.max(k,k0))}
+ catch(e){console.warn("wind map:",e.message);wmMsg("Wind data unavailable: "+e.message+".",true)}}
+async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLeaflet()}catch(e){wmMsg("Map unavailable: "+e.message+". The hourly wind list below still works.",true);return}
+ const{lat,lon}=S.loc,key=lat+","+lon;
+ if(!WM.map){WM.map=L.map("wmMap",{zoomControl:true,attributionControl:true,minZoom:5,maxZoom:12});
+  // USGS The National Map imagery (US public domain, no key). CARTO basemaps now need a CARTO-issued key (unkeyed tiles show "API KEY REQUIRED").
+  L.tileLayer("https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",{maxZoom:12,maxNativeZoom:16,className:"wmTiles",attribution:'Imagery: <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map">USGS The National Map</a> · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
+  WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>wmEnsureArea());WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
+  $("wmT").oninput=e=>wmSetHour(+e.target.value);$("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}
+ WM.map.invalidateSize();
+ if(key!=WM.locKey||force){WM.locKey=key;const dl=50/69,dn=dl/Math.cos(lat*Math.PI/180);WM.tap=null;if(WM.tapMk){WM.tapMk.remove();WM.tapMk=null}$("wmRead").innerHTML='<span class="mut">Tap the map for speed, gusts and direction at that point.</span>';
+  WM.map.fitBounds([[lat-dl,lon-dn],[lat+dl,lon+dn]]);if(WM.mk)WM.mk.setLatLng([lat,lon]);else{WM.mk=L.marker([lat,lon],{title:S.loc.name}).addTo(WM.map);WM.mk.on("click",()=>{const q=WM.mk.getLatLng();wmReadout(q.lat,q.lng)})}// tapping the spot marker gives the readout thereWM.mk.bindTooltip(S.loc.name||"Spot");
+  if(force)WM.cache.clear(),WM.area=null;await wmEnsureArea()}
+ else if(WM.area){WM.wf.start()}}
+function wmHide(){if(WM.wf)WM.wf.stop()}
+
 S.buoy={};$("build").textContent="Brinecast "+BUILD;renderLog();renderFavs();renderGo();show(new URLSearchParams(location.search).get("view")||LS.get("view","weather"));
 const qp=new URLSearchParams(location.search);
 if(qp.get("lat"))setLoc({name:qp.get("name")||"Spot",lat:+qp.get("lat"),lon:+qp.get("lon")});

@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.24 · Oct 19 2026";// bump on every push
+const BUILD="v0.9.25 · Oct 20 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1206,7 +1206,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   root.DayStrip = {create:create, colorFor:colorFor, cardinal:cardinal};
 })(typeof window!=='undefined'?window:this);
 
-/* ---- WindData by Coder (/workspace/brinecast/winddata.js), inlined; used with blendMode:"none", allowCorrection:false, capture:true, captureMax:2 ---- */
+/* ---- WindData by Coder (/workspace/brinecast/winddata.js), inlined unmodified ---- */
 /* winddata.js — Brinecast wind-map data layer (requests, parse, rotation guard, HRRR→best blend, WindFlow field, cache).
    Browser global `WindData` or Node module. No deps. All times are unix seconds (UTC), so DST days (Nov 1 = 25 local h) need no special case. */
 (function(root){
@@ -1214,7 +1214,8 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   var N=9, SPAN_MI=100, CHECK=[1,4,7], VARS='wind_speed_10m,wind_direction_10m,wind_gusts_10m';
   var DEF={ nGrid:N, spanMi:SPAN_MI, forecastDays:7,
     rotShift:-11.5, rotTol:2.5, minPts:7, maxSpread:2.5, minHourFrac:0.6, minHours:6,   // detector
-    refetch:true, maxRefetches:2, allowCorrection:false, blendHours:6, blendMode:'none', agreeDeg:3, runLagSec:5400, capture:false, captureKey:'brinecast.rotSamples', captureMax:2, ttlMs:3600e3 };
+    refetch:true, maxRefetches:2, allowCorrection:false, blendHours:6, blendMode:'none', agreeDeg:3, runLagSec:5400, capture:false, captureKey:'brinecast.rotSamples', captureMax:2, ttlMs:3600e3,
+    ecHours:48, ecMinSamples:100, ecLo:-16, ecHi:-8, ecPtMax:-6, ecMinPts:6, ecMinKt:3 };   // per-load ECMWF check (no baseline needed)
   var R2D=180/Math.PI;
   function wrap(d){ d=((d%360)+540)%360-180; return d===-180?180:d; }
   function uv(kt,from){ var r=from/R2D; return [-kt*Math.sin(r), -kt*Math.cos(r)]; }          // blow-toward u east, v north
@@ -1261,6 +1262,23 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   // compare two loads with no prior baseline: rotation is always CCW, so the one that is −11.5° vs the other is the bad one
   function detectPair(dA, dB, o){ var ab=detect(dA,dB,o), ba=detect(dB,dA,o); return {aRotated:ab.rotated, bRotated:ba.rotated, ab:ab, ba:ba}; }
 
+  /* ecmwfCheck(P, check, o): per-load rotation check that needs no second load. NCEP (HRRR where present, else best_match) minus ECMWF
+     at the check points, pooled over the first ecHours forecast hours. Natural gaps swing hour to hour (−17…+91°) but pool near 0;
+     a rotated load pools at ≈ natural−11.5. Flag when pooled median in [ecLo,ecHi] AND ≥ecMinPts check points have their own median ≤ecPtMax. */
+  function ecmwfCheck(P, check, o){ o=Object.assign({},DEF,o); var E=P.ecmwf, out={checked:false, rotated:false, n:0, median:null, pointMedians:[], ptHits:0, reason:''};
+    if(!E){ out.reason='no ECMWF check points'; return out; } var ei=new Map(); E.t.forEach(function(t,k){ei.set(t,k);});
+    var hi=new Map(); P.hrrr.t.forEach(function(t,k){hi.set(t,k);}); var per=check.map(function(){return [];}), all=[], used=0;
+    for(var k=0;k<P.best.t.length&&used<o.ecHours;k++){ var t=P.best.t[k], ke=ei.get(t); if(ke==null) continue; used++; var kh=hi.get(t);
+      for(var i=0;i<check.length;i++){ var c=check[i], hp=P.hrrr.pts[c], x=null, s=null;
+        if(kh!=null&&hp&&hp.d[kh]!=null&&hp.s[kh]!=null){ x=hp.d[kh]; s=hp.s[kh]; } else { x=P.best.pts[c].d[k]; s=P.best.pts[c].s[k]; }
+        var y=E.pts[i]&&E.pts[i].d[ke], ys=E.pts[i]&&E.pts[i].s[ke];
+        if(x==null||y==null||s==null||s<o.ecMinKt||(ys!=null&&ys<o.ecMinKt)) continue; var g=wrap(x-y); per[i].push(g); all.push(g); } }
+    out.n=all.length; out.pointMedians=per.map(function(a){return a.length?med(a):null;});
+    if(out.n<o.ecMinSamples){ out.reason='only '+out.n+' ECMWF samples'; return out; }
+    out.checked=true; out.median=med(all); out.ptHits=out.pointMedians.filter(function(m){return m!=null&&m<=o.ecPtMax;}).length;
+    out.rotated = out.median>=o.ecLo && out.median<=o.ecHi && out.ptHits>=o.ecMinPts;
+    out.reason=(out.rotated?'rotated vs ECMWF: ':'ok vs ECMWF: ')+'pooled '+out.median.toFixed(1)+'°, '+out.ptHits+'/'+check.length+' points ≤'+o.ecPtMax+'° ('+out.n+' samples)'; return out; }
+
   // 4. action
   function correct(P, shift){ ['hrrr','best'].forEach(function(m){ P[m].pts.forEach(function(p){ p.d=p.d.map(function(x){ return x==null?null:(((x-shift)%360)+360)%360; }); }); });
     P.corrected=-shift; return P; }
@@ -1303,9 +1321,11 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
      o.capture:true + o.raw={ncep,ecmwf} saves the raw sample when flagged (no extra requests). */
   function decide(P, check, base, o){ o=Object.assign({},DEF,o); var n=o.refetches||0, d=checkDiffs(P,check), r;
     if(base && typeof base.offer==='function') r=base.offer(d, o.runId); else r=base?{status:'checked', det:detect(d,base,o)}:{status:'unchecked', det:null};
-    var det=r.det||{rotated:false, reason:r.reason||'no accepted baseline'}, out={status:r.status, needRefetch:false, corrected:false, directionsSuspect:false, det:det, diffs:d};
-    P.directionsSuspect=false; P.checked=r.status==='checked';
-    if(!det.rotated) return out;
+    var det=r.det||{rotated:false, reason:r.reason||'no accepted baseline'}, ec=o.ecmwfCheck===false?{checked:false,rotated:false,reason:'off'}:ecmwfCheck(P,check,o);
+    var st=(r.status==='checked'||ec.checked)?'checked':'unchecked', out={status:st, needRefetch:false, corrected:false, directionsSuspect:false, det:det, ec:ec, diffs:d, by:null};
+    P.directionsSuspect=false; P.checked=st==='checked'; P.ecmwfOk=ec.checked&&!ec.rotated;
+    if(!det.rotated&&!ec.rotated) return out;
+    out.by=det.rotated?(ec.rotated?'both':'baseline'):'ecmwf'; if(!det.rotated) det={rotated:true, shift:o.rotShift, reason:ec.reason};
     if(o.capture) captureSample(o.raw, det, o);
     if(o.refetch && n<o.maxRefetches){ out.needRefetch=true; return out; }
     if(o.allowCorrection){ correct(P, det.shift!=null?det.shift:o.rotShift); out.corrected=true; out.diffs=checkDiffs(P,check); return out; }
@@ -1340,15 +1360,85 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   function cacheGet(store,key,o){ o=Object.assign({},DEF,o); var e=store.get(key); return e && Date.now()-e.fetchedAt<o.ttlMs ? e : null; }
 
   var api={defaults:DEF, wrap:wrap, uv:uv, spdDir:spdDir, grid:grid, buildRequests:buildRequests, parse:parse, parseAll:parseAll,
-    checkDiffs:checkDiffs, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
+    checkDiffs:checkDiffs, ecmwfCheck:ecmwfCheck, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
     cacheKey:cacheKey, cacheGet:cacheGet, cachePut:cachePut};
   if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.WindData=api;
+})(this);
+
+/* ---- TapCheck by Coder (/workspace/brinecast/tapcheck.js), inlined unmodified ---- */
+/* tapcheck.js — check a single map-tap forecast against the already-checked grid load (uses winddata.js).
+   1 request per tap: models ncep_hrrr_conus,best_match (no ECMWF). Never corrects data. */
+(function(root){
+  'use strict';
+  var W = (typeof module!=='undefined'&&module.exports) ? require('./winddata.js') : root.WindData;
+  var DEF={ hours:6, minHits:4, minValid:4, bandLo:-13, bandHi:-10, maxSpread:1.5, minKt:3, maxRefetches:1, forecastDays:3, requireEcmwfOk:true, ecHours:48, ecMin:20, ecLo:-16, ecHi:-9 };
+  function tapUrl(lat, lon, o){ o=Object.assign({},DEF,o);
+    return 'https://api.open-meteo.com/v1/forecast?latitude='+(+lat).toFixed(4)+'&longitude='+(+lon).toFixed(4)+
+      '&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime&forecast_days='+o.forecastDays+'&models=ncep_hrrr_conus,best_match'; }
+  var tapWeight = 2; // ≈ 1 location × 2 models (3 vars, ≤14 days)
+
+  // bilinear u/v of grid hour h (from WindData.blend) at lat/lon; null if outside grid
+  function gridUV(g, h, lat, lon){ var fy=(lat-g.lat0)/g.dLat, fx=(lon-g.lon0)/g.dLon, n=g.n;
+    if(!(fx>=0&&fy>=0&&fx<=n-1&&fy<=n-1)) return null; var x0=Math.min(Math.floor(fx),n-2), y0=Math.min(Math.floor(fy),n-2), tx=fx-x0, ty=fy-y0;
+    function b(a){ var i=y0*n+x0; return (a[i]*(1-tx)+a[i+1]*tx)*(1-ty)+(a[i+n]*(1-tx)+a[i+n+1]*tx)*ty; }
+    var u=b(h.u), v=b(h.v); return isFinite(u)&&isFinite(v)?[u,v]:null; }
+
+  /* checkTap(tapResp, gridLoad, {t, lat, lon, refetches, sampler})
+     gridLoad = {grid: WindData.grid(...) or buildRequests().grid, hours: WindData.blend(...).hours, checked: bool, directionsSuspect: bool}
+     Returns {status:'checked'|'unchecked', rotated, needRefetch, directionsSuspect, hits, valid, diffs, reason}. */
+  function checkTap(tapResp, G, o){ o=Object.assign({},DEF,o); var out={status:'unchecked', rotated:false, needRefetch:false, directionsSuspect:false, hits:0, valid:0, diffs:[], reason:''};
+    if(!G||!G.checked){ out.reason='grid load not checked'; return out; }
+    if(G.directionsSuspect){ out.reason='grid load is itself suspect'; return out; }
+    if(o.requireEcmwfOk && G.ecmwfOk!==true){ out.reason='grid did not pass the ECMWF check (a rotated grid would hide a rotated tap)'; return out; }
+    var P=W.parseAll(tapResp,null), H=P.hrrr, B=P.best, k0=B.t.indexOf(o.t);
+    if(k0<0){ out.reason='hour missing in tap response'; return out; }
+    var hi=new Map(); G.hours.forEach(function(h,i){ hi.set(h.t,i); });
+    var sampler=o.sampler||function(h,lat,lon){ return gridUV(G.grid,h,lat,lon); };
+    for(var k=k0;k<k0+o.hours&&k<B.t.length;k++){ var t=B.t[k], gi=hi.get(t);
+      if(gi==null){ if(k===k0){ out.reason='hour missing in grid'; return out; } continue; }
+      var gh=G.hours[gi], kh=H.t.indexOf(t);
+      var useH = gh.model!=='best' && kh>=0 && H.pts[0].d[kh]!=null && H.pts[0].s[kh]!=null;
+      var s=useH?H.pts[0].s[kh]:B.pts[0].s[k], d=useH?H.pts[0].d[kh]:B.pts[0].d[k];
+      var uv=sampler(gh,o.lat,o.lon);
+      if(!uv){ out.reason='point not covered by grid'; return out; }
+      var gs=Math.sqrt(uv[0]*uv[0]+uv[1]*uv[1]);
+      if(s==null||d==null||s<o.minKt||gs<o.minKt){ if(k===k0){ out.reason='calm (<'+o.minKt+' kt) or missing at hour t'; return out; } continue; }
+      var gd=W.spdDir(uv[0],uv[1])[1], df=W.wrap(d-gd); out.diffs.push(+df.toFixed(2)); out.valid++; }
+    if(out.valid<o.minValid){ out.reason='only '+out.valid+' usable hours'; return out; }
+    var inb=out.diffs.filter(function(x){return x>=o.bandLo&&x<=o.bandHi;}); out.hits=inb.length; out.status='checked';
+    var m=inb.length?inb.reduce(function(a,b){return a+b;},0)/inb.length:0, sp=inb.length?Math.sqrt(inb.reduce(function(a,x){return a+(x-m)*(x-m);},0)/inb.length):0;
+    out.rotated = inb.length>=o.minHits && sp<=o.maxSpread;
+    if(!out.rotated){ out.reason='ok: '+inb.length+'/'+out.valid+' hours in '+o.bandLo+'…'+o.bandHi+'°'; return out; }
+    if((o.refetches||0)<o.maxRefetches){ out.needRefetch=true; out.reason='rotated '+m.toFixed(1)+'° at '+inb.length+'/'+out.valid+' hours; refetch'; return out; }
+    out.directionsSuspect=true; out.reason='still rotated after refetch ('+m.toFixed(1)+'°); data unchanged'; return out; }
+
+
+  /* checkTapEcmwf(tapResp, ecmwfResp, {lat, lon, refetches}) — tap vs the nearest ECMWF check point directly (no grid trust needed).
+     ecmwfResp = the grid load's ECMWF check-point response (array with latitude/longitude). Pools HRRR (else best_match) − ECMWF
+     over the first ecHours hours; rotated when pooled median in [ecLo, ecHi]. Weaker than the grid check (1 point), so use it as a fallback. */
+  function checkTapEcmwf(tapResp, ecJson, o){ o=Object.assign({},DEF,o); var out={status:'unchecked', rotated:false, needRefetch:false, directionsSuspect:false, n:0, median:null, reason:''};
+    var A=Array.isArray(ecJson)?ecJson:(ecJson?[ecJson]:[]); if(!A.length){ out.reason='no ECMWF points'; return out; }
+    var bi=0, bd=Infinity; A.forEach(function(p,i){ var d=Math.pow(p.latitude-o.lat,2)+Math.pow((p.longitude-o.lon)*Math.cos(o.lat*Math.PI/180),2); if(d<bd){bd=d;bi=i;} });
+    if(Math.sqrt(bd)>0.75){ out.reason='nearest ECMWF point too far'; return out; }
+    var E=W.parse(A[bi],null), P=W.parseAll(tapResp,null), H=P.hrrr, B=P.best, ei=new Map(), hi=new Map(), g=[], used=0;
+    E.t.forEach(function(t,k){ei.set(t,k);}); H.t.forEach(function(t,k){hi.set(t,k);});
+    for(var k=0;k<B.t.length&&used<o.ecHours;k++){ var t=B.t[k], ke=ei.get(t); if(ke==null) continue; used++; var kh=hi.get(t), s, d;
+      if(kh!=null&&H.pts[0].d[kh]!=null&&H.pts[0].s[kh]!=null){ s=H.pts[0].s[kh]; d=H.pts[0].d[kh]; } else { s=B.pts[0].s[k]; d=B.pts[0].d[k]; }
+      var y=E.pts[0].d[ke], ys=E.pts[0].s[ke]; if(s==null||d==null||y==null||s<o.minKt||(ys!=null&&ys<o.minKt)) continue; g.push(W.wrap(d-y)); }
+    out.n=g.length; if(out.n<o.ecMin){ out.reason='only '+out.n+' usable hours vs ECMWF'; return out; }
+    g.sort(function(a,b){return a-b;}); out.median=g.length%2?g[g.length>>1]:(g[g.length/2-1]+g[g.length/2])/2; out.status='checked';
+    out.rotated=out.median>=o.ecLo&&out.median<=o.ecHi;
+    if(!out.rotated){ out.reason='ok vs ECMWF: pooled '+out.median.toFixed(1)+'° over '+out.n+' h'; return out; }
+    if((o.refetches||0)<o.maxRefetches){ out.needRefetch=true; out.reason='rotated vs ECMWF ('+out.median.toFixed(1)+'°); refetch'; return out; }
+    out.directionsSuspect=true; out.reason='still rotated vs ECMWF after refetch; data unchanged'; return out; }
+  var api={checkTapEcmwf:checkTapEcmwf, tapUrl:tapUrl, tapWeight:tapWeight, checkTap:checkTap, gridUV:gridUV, defaults:DEF};
+  if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.TapCheck=api;
 })(this);
 
 // ===== Wind map (v0.9.24): Leaflet map + Open-Meteo grid + WindFlow moving lines + DayStrip =====
 // Times: Open-Meteo returns unixtime (UTC seconds); every label is formatted in America/New_York via Intl, so EDT->EST (Nov 1) is handled.
 const WM={map:null,wf:null,ds:null,mk:null,area:null,cache:new Map(),hi:0,loadP:null,locKey:"",exactSeq:0,spot:null};
-const WM_N=9;// 9x9 grid over ~100 mi (WindData defaults)
+const WM_N=11;// 9x9 grid over ~100 mi (WindData defaults)
 const WM_TZ="America/New_York",wmFmt=new Intl.DateTimeFormat("en-US",{timeZone:WM_TZ,weekday:"short",hour:"numeric",timeZoneName:"short"});
 function wmLabel(ms){const p=Object.fromEntries(wmFmt.formatToParts(new Date(ms)).map(x=>[x.type,x.value]));return `${p.weekday} ${p.hour} ${p.dayPeriod} ${p.timeZoneName}`}
 const WM_CARD=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"],wmCard=d=>WM_CARD[Math.round(((d%360)+360)%360/22.5)%16];
@@ -1368,48 +1458,48 @@ const WM_Q="&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_
    Open-Meteo weight (pricing page): grid 81 pts x 2 models = 162, ECMWF 9 -> 171 per area load; +162 per refetch (max 2); 2 per exact point. */
 const WM_LS="wd2:",WM_TTL=3600e3,WM_RETRY=2;
 WM.calls=0;// weighted Open-Meteo calls made by the wind map this session (for tests / budget)
-const WM_SPAN=140;// grid span (mi): covers the whole ~120×135 mi phone view at zoom 8, still 9×9 = 81 points
-function wmAreaFor(lat,lon){const q=x=>Math.round(x*20)/20,la=q(lat),lo=q(lon),g=WindData.grid(la,lo,{spanMi:WM_SPAN}),dl=WM_SPAN/69,dn=dl/Math.cos(la*Math.PI/180);
+const WM_SPAN=175,WM_GRID={nGrid:11,spanMi:WM_SPAN};// 11×11 at ~17.5 mi spacing: the ~120×135 mi phone view at zoom 8 plus a margin on each side
+function wmAreaFor(lat,lon){const q=x=>Math.round(x*20)/20,la=q(lat),lo=q(lon),g=WindData.grid(la,lo,WM_GRID),dl=WM_SPAN/69,dn=dl/Math.cos(la*Math.PI/180);
  return{key:la.toFixed(2)+","+lo.toFixed(2),g,lat0:g.lat0,lon0:g.lon0,dLat:g.dLat,dLon:g.dLon,nLat:g.n,nLon:g.n,cLat:la,cLon:lo,dl,dn}}
 const wmLSget=k=>{try{return JSON.parse(localStorage.getItem(WM_LS+k))}catch(e){return null}};
 function wmLSput(k,v){const s=JSON.stringify(v);for(let tries=0;tries<3;tries++){try{localStorage.setItem(WM_LS+k,s);return}catch(e){// full: drop the oldest wind entries
   const ks=Object.keys(localStorage).filter(x=>x.startsWith(WM_LS+"d:")).sort((a,b)=>(wmLSget(a.slice(WM_LS.length))?.fetchedAt||0)-(wmLSget(b.slice(WM_LS.length))?.fetchedAt||0));if(!ks.length)return;localStorage.removeItem(ks[0])}}}
-async function wmGetLoad(A,which){const Q=WindData.buildRequests(A.cLat,A.cLon);const u=which=="ncep"?Q.ncep:Q.ecmwf;WM.calls+=which=="ncep"?Q.weight.ncep:Q.weight.ecmwf;return wmFetchJ(u,25000)}
+async function wmGetLoad(A,which){const Q=WindData.buildRequests(A.cLat,A.cLon,WM_GRID);const u=which=="ncep"?Q.ncep:Q.ecmwf;WM.calls+=which=="ncep"?Q.weight.ncep:Q.weight.ecmwf;return wmFetchJ(u,25000)}
 // forecast run id: HRRR's last_run_initialisation_time from Open-Meteo's model metadata (fetch-time guess if that fails)
 async function wmRunId(){let m=null;try{m=await wmFetchJ("https://api.open-meteo.com/data/ncep_hrrr_conus/static/meta.json",8000)}catch(e){console.warn("HRRR meta.json:",e.message)}
  return{id:WindData.runIdFromMeta(m,Date.now()),src:m&&m.last_run_initialisation_time?"meta":"guess"}}
 const WM_WD={blendMode:"none",allowCorrection:false,capture:true,captureMax:2};
-// guard (no correction): baseline per area = WindData.createBaseline (accepted once two loads agree; resets on a new run), persisted in localStorage.
-async function wmGuarded(A,ec){const run=await wmRunId(),bm=WindData.createBaseline(WM_WD),st=wmLSget("b:"+A.key);if(st)Object.assign(bm.state,st);
- let tries=0,nc,r;for(;;){nc=await wmGetLoad(A,"ncep");const P=WindData.parseAll(nc,ec);r=WindData.decide(P,A.g.check,bm,Object.assign({},WM_WD,{runId:run.id,refetches:tries,raw:{ncep:nc,ecmwf:ec}}));if(!r.needRefetch)break;tries++}
- wmLSput("b:"+A.key,bm.state);WM.lastGuard={status:r.status,suspect:r.directionsSuspect,tries,run,reason:r.det&&r.det.reason};
- return{nc,rot:!!r.directionsSuspect,tries,status:r.status,run,why:(r.det&&r.det.reason)||""}}
+// guard (no correction): every grid load is checked against the 9 ECMWF check points fetched with it (WindData.decide -> ecmwfCheck,
+// pooled median in -16…-8° with ≥6/9 points). Rotated -> refetch (max 2); still rotated -> shown with "directions may be off". No baseline.
+async function wmGuarded(A,ec){const run=await wmRunId();
+ let tries=0,nc,r,P;for(;;){nc=await wmGetLoad(A,"ncep");P=WindData.parseAll(nc,ec);r=WindData.decide(P,A.g.check,null,Object.assign({},WM_WD,WM_GRID,{runId:run.id,refetches:tries,raw:{ncep:nc,ecmwf:ec}}));if(!r.needRefetch)break;tries++}
+ WM.lastGuard={status:r.status,suspect:r.directionsSuspect,ecmwfOk:!!P.ecmwfOk,tries,run,reason:r.ec&&r.ec.reason};
+ return{nc,rot:!!r.directionsSuspect,tries,status:r.status,ecmwfOk:!!P.ecmwfOk,run,why:(r.ec&&r.ec.reason)||""}}
 function wmLoadArea(A){WM.inf=WM.inf||new Map();const C=WM.cache.get(A.key);if(C&&Date.now()-C.fetchedAt<WM_TTL)return Promise.resolve(C);if(WM.inf.has(A.key))return WM.inf.get(A.key);// one request in flight per area
  const P=wmLoadArea2(A).finally(()=>WM.inf.delete(A.key));WM.inf.set(A.key,P);return P}
 function wmBuild(A,raw){const P=WindData.parseAll(raw.nc,raw.ec),B=WindData.blend(P,WM_WD);
  const H=B.hours.map(h=>({t:h.t*1000,model:h.model,w:h.w,rot:raw.rot,why:raw.rot?raw.why:"",s:h.s,g:h.g,d:h.d,field:{lat0:A.lat0,lon0:A.lon0,dLat:A.dLat,dLon:A.dLon,nLat:A.nLat,nLon:A.nLon,u:h.u,v:h.v}}));
- const fb=H.find(h=>h.model!="hrrr"&&B.lastHrrrT&&h.t>B.lastHrrrT*1000);return{A,H,lastH:B.lastHrrrT&&B.lastHrrrT*1000,switchT:fb?fb.t:null,fetchedAt:raw.fetchedAt,rot:raw.rot,guard:raw.why,tries:raw.tries,status:raw.status,run:raw.run}}
+ const fb=H.find(h=>h.model!="hrrr"&&B.lastHrrrT&&h.t>B.lastHrrrT*1000);return{A,H,lastH:B.lastHrrrT&&B.lastHrrrT*1000,switchT:fb?fb.t:null,B:B.hours,G:{grid:A.g,hours:B.hours,checked:raw.status=="checked",directionsSuspect:!!raw.rot,ecmwfOk:raw.ecmwfOk===true},fetchedAt:raw.fetchedAt,rot:raw.rot,guard:raw.why,tries:raw.tries,status:raw.status,run:raw.run}}
 async function wmLoadArea2(A){const k="d:"+A.key,c=wmLSget(k);let raw;
  if(c&&Date.now()-c.fetchedAt<WM_TTL)raw=c;// localStorage copy (survives reloads; refetched at most hourly)
- else{const ec=await wmGetLoad(A,"ecmwf"),G=await wmGuarded(A,ec);raw={fetchedAt:Date.now(),nc:G.nc,ec,rot:G.rot,why:G.why,tries:G.tries,status:G.status,run:G.run};wmLSput(k,raw)}
+ else{const ec=await wmGetLoad(A,"ecmwf"),G=await wmGuarded(A,ec);raw={fetchedAt:Date.now(),nc:G.nc,ec,rot:G.rot,why:G.why,tries:G.tries,status:G.status,ecmwfOk:G.ecmwfOk,run:G.run};wmLSput(k,raw)}
  const R=wmBuild(A,raw);WM.cache.set(A.key,R);if(WM.cache.size>4)WM.cache.delete(WM.cache.keys().next().value);return R}
 /* exact single point: one request with both NCEP models (2 calls). Rotation check: the point's NCEP direction vs the accepted grid at
    that point, over its HRRR-window hours; a consistent ~11.5 deg CCW offset in most hours -> refetch (max 2), else note. */
-async function wmPoint(lat,lon){const k=lat.toFixed(4)+","+lon.toFixed(4);WM.pc=WM.pc||new Map();const C=WM.pc.get(k);if(C&&Date.now()-C.fetchedAt<WM_TTL)return C;
- const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime&forecast_days=7&models=ncep_hrrr_conus,best_match`;
- let tries=0,j,rot=false,chk=null;
- for(;;){WM.calls+=2;j=await wmFetchJ(u,15000);chk=wmPointRot(j,lat,lon);if(!chk||!chk.rotated||tries>=WM_RETRY)break;tries++}
- rot=!!(chk&&chk.rotated);const P=WindData.parseAll(j,null),B=WindData.blend(P,WM_WD);
- const R={H:B.hours.map(h=>({t:h.t*1000,model:h.model,s:h.s,g:h.g,d:h.d})),rot,tries,chk,fetchedAt:Date.now()};WM.pc.set(k,R);if(WM.pc.size>20)WM.pc.delete(WM.pc.keys().next().value);return R}
-function wmPointRot(j,lat,lon){const R=WM.area;if(!R||R.rot)return null;const P=WindData.parseAll(j,null),o=[0,0],J=[];
- P.best.t.forEach((t,k)=>{const h=R.H.find(x=>x.t==t*1000);if(!h||h.model=="best")return;const s=P.best.pts[0].s[k],d=P.best.pts[0].d[k];if(s==null||d==null||s<3)return;
-  if(!WindFlow._sampleField(h.field,lat,lon,o))return;J.push(WindData.wrap(d-wmFrom(o[0],o[1])))});
- if(J.length<6)return{rotated:false,n:J.length};const inb=J.filter(x=>Math.abs(x-WindData.defaults.rotShift)<=WindData.defaults.rotTol).length;
- return{rotated:inb/J.length>=.6,n:J.length,frac:+(inb/J.length).toFixed(2)}}
+function wmPoint(lat,lon){const k=lat.toFixed(4)+","+lon.toFixed(4);WM.pc=WM.pc||new Map();WM.pin=WM.pin||new Map();const C=WM.pc.get(k);if(C&&Date.now()-C.fetchedAt<WM_TTL)return Promise.resolve(C);
+ if(WM.pin.has(k))return WM.pin.get(k);// the spot is fetched once even when the strip and the marker ask together
+ const P=wmPoint2(lat,lon,k).finally(()=>WM.pin.delete(k));WM.pin.set(k,P);return P}
+/* exact single point: one request with both NCEP models (2 calls), checked with TapCheck.checkTap against the ECMWF-checked grid
+   (~-11.5° CCW in ≥4 of 6 hours -> one refetch; still rotated -> "directions may be off"). */
+async function wmPoint2(lat,lon,k){const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime&forecast_days=7&models=ncep_hrrr_conus,best_match`;
+ let tries=0,j,chk=null;
+ for(;;){WM.calls+=TapCheck.tapWeight;j=await wmFetchJ(u,15000);const R=WM.area,h=R&&R.H[WM.hi];chk=R?TapCheck.checkTap(j,R.G,{t:h?h.t/1000:Math.floor(Date.now()/36e5)*3600,lat,lon,refetches:tries}):null;if(!chk||!chk.needRefetch)break;tries++}
+ const P=WindData.parseAll(j,null),B=WindData.blend(P,WM_WD);
+ const R={H:B.hours.map(h=>({t:h.t*1000,model:h.model,s:h.s,g:h.g,d:h.d})),rot:!!(chk&&chk.directionsSuspect),tries,chk,fetchedAt:Date.now()};WM.pc.set(k,R);if(WM.pc.size>20)WM.pc.delete(WM.pc.keys().next().value);return R}
 
 const wmModelName=m=>m=="hrrr"?"NOAA HRRR 3 km (high-res US model)":"longer-range model (Open-Meteo best match)";
 function wmSetHour(k,fromStrip){const R=WM.area;if(!R||!R.H.length)return;WM.hi=Math.max(0,Math.min(R.H.length-1,k));const h=R.H[WM.hi];WM.t=h.t;
- $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off (the forecast server sent a rotated copy; refetching didn\'t fix it)</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)));
+ $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off (the forecast server sent a rotated copy; refetching didn\'t fix it)</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)))+" ET";
  WM.wf.setField(h.field);WM.wf.start();if(WM.ds&&!fromStrip)WM.ds.setSelected(h.t/1000);if(WM.tap)wmReadout(WM.tap.lat,WM.tap.lng,true)}
 function wmGrid(R,lat,lon,arr){// bilinear on a scalar grid (gusts)
  const A=R.A,fy=(lat-A.lat0)/A.dLat,fx=(lon-A.lon0)/A.dLon;if(!(fx>=0&&fy>=0&&fx<=A.nLon-1&&fy<=A.nLat-1))return NaN;const x0=Math.min(Math.floor(fx),A.nLon-2),y0=Math.min(Math.floor(fy),A.nLat-2),tx=fx-x0,ty=fy-y0,n=A.nLon,i=y0*n+x0;
@@ -1424,7 +1514,7 @@ async function wmReadout(lat,lon,again){const R=WM.area;if(!R)return;const h=R.H
  const seq=++WM.exactSeq,C=WM.pc&&WM.pc.get(lat.toFixed(4)+","+lon.toFixed(4));
  if(!(C&&Date.now()-C.at<30*6e4))el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" class="wmLoad">Getting the exact forecast for this point…</div><div class="wmApx">${approx}</div>`;
  try{const P=await wmPoint(lat,lon);if(seq!=WM.exactSeq)return;const x=P.H.find(q=>q.t==h.t);if(!x)throw new Error("no value for this hour");
-  el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-kt="${x.s[0]}" data-from="${x.d[0]}" data-model="${x.model}"><b>${Math.round(x.s[0])} kt</b> sustained${isFinite(x.g[0])?`, <b>gust ${Math.round(x.g[0])} kt</b>`:""}, from <b>${wmCard(x.d[0])} (${Math.round(x.d[0])}°)</b> <span class="mut">exact point · ${wmTag(x.model)} · fetched ${fmtT(new Date(P.fetchedAt))}${P.rot?" · ⚠️ directions may be off":""}</span></div><div class="wmApx">${approx}</div>`}
+  el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-kt="${x.s[0]}" data-from="${x.d[0]}" data-model="${x.model}"><b>${Math.round(x.s[0])} kt</b> sustained${isFinite(x.g[0])?`, <b>gust ${Math.round(x.g[0])} kt</b>`:""}, from <b>${wmCard(x.d[0])} (${Math.round(x.d[0])}°)</b> <span class="mut">exact point · ${wmTag(x.model)} · fetched ${fmtT(new Date(P.fetchedAt))} ET${P.rot?" · ⚠️ directions may be off":""}</span></div><div class="wmApx">${approx}</div>`}
  catch(e){if(seq!=WM.exactSeq)return;el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-fail="1">${s?`<b>≈ ${Math.round(s.kt)} kt</b>${isFinite(g)?`, gust ≈ ${Math.round(g)} kt`:""}, from ${wmCard(s.fromDeg)} (${Math.round(s.fromDeg)}°)`:"No value here"} <span class="mut">APPROXIMATE, from the grid: the exact point didn't load (${esc(e.message)})</span></div>`}}
 // day strip: hours for the spot from its exact point (falls back to the grid cell at the spot)
 async function wmStrip(){if(!WM.ds||!S.loc)return;const{lat,lon}=S.loc,d0=new Date();d0.setHours(0,0,0,0);let H,src;
@@ -1441,8 +1531,9 @@ async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng
 async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLeaflet()}catch(e){wmMsg("Map unavailable: "+e.message+". The hourly wind list below still works.",true);return}
  const{lat,lon}=S.loc,key=lat+","+lon;
  if(!WM.map){WM.map=L.map("wmMap",{zoomControl:true,attributionControl:true,minZoom:5,maxZoom:12});
-  // USGS The National Map imagery (US public domain, no key). CARTO basemaps now need a CARTO-issued key (unkeyed tiles show "API KEY REQUIRED").
-  L.tileLayer("https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",{maxZoom:12,maxNativeZoom:16,className:"wmTiles",attribution:'Imagery: <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map">USGS The National Map</a> · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
+  // EOxCloudless Sentinel-2 2025 mosaic (free for non-commercial use, CC BY-NC-SA 4.0, attribution required). Real ocean pixels at every zoom,
+  // unlike USGS imagery, which has black no-data blocks offshore at zoom 9–10.
+  L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:12,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
   WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>wmEnsureArea());WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
   WM.ds=DayStrip.create($("wmDays"),{hours:[],tz:WM_TZ,onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
   $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}

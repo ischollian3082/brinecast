@@ -50,9 +50,9 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 .tc .note{font-size:11px;color:#a9c3d6}
 .locked{text-align:center;padding:20px}
 #viewTitle{font-size:13px;color:var(--mut)}
-#wmWrap{position:relative;height:420px;border-radius:10px;overflow:hidden;background:#0b1622}#wmMap{position:absolute;inset:0;background:#0b1622}.wmTiles{filter:brightness(.55) saturate(.7)}
+#wmWrap{position:relative;height:420px;border-radius:10px;overflow:hidden;background:#0b1622}#wmMap{position:absolute;inset:0;background:#0b1622}.wmTiles{filter:brightness(.55) saturate(.7)}.wmTiles img.leaflet-tile{outline:1px solid transparent}/* Chromium tile-seam fix (measured: seam contrast 19 -> 2.5); a 256.5px overlap made it worse */
 #wmLeg{position:absolute;right:6px;top:6px;z-index:500;background:rgba(10,20,30,.78);color:#fff;border-radius:8px;padding:3px 6px;font-size:11px;display:flex;gap:5px;align-items:center;pointer-events:none}#wmLeg i{display:inline-block;width:10px;height:4px;border-radius:2px;margin-right:2px;vertical-align:middle}
-#wmMsg{display:none;position:absolute;left:10px;right:10px;top:10px;z-index:600;background:rgba(10,20,30,.9);color:#fff;border-radius:8px;padding:8px;font-size:14px}.wmBar{display:flex;gap:8px;align-items:center;margin:8px 0 2px}.wmBar input{flex:1}#wmLbl{min-width:118px;text-align:right;font-weight:700;font-size:14px}#wmRead{margin-top:6px;font-size:15px}#windmap .leaflet-container{font:12px system-ui,sans-serif}
+#wmMsg{display:none;position:absolute;left:10px;right:10px;top:10px;z-index:600;background:rgba(10,20,30,.9);color:#fff;border-radius:8px;padding:8px;font-size:14px}.wmBar{display:flex;gap:8px;align-items:center;margin:8px 0 2px}.wmBar input{flex:1}#wmLbl{font-weight:700;font-size:14px}.wmWarn{color:#b26a00;font-weight:600}#wmDays{margin:2px -4px 4px;background:#0b1622;border-radius:10px;padding:2px 0}.wmLoad{font-weight:700;opacity:.8}.wmApx{font-size:12px;color:var(--mut);margin-top:2px}#wmRead{margin-top:6px;font-size:15px}#windmap .leaflet-container{font:12px system-ui,sans-serif}
 </style>
 </head><body>
 <header>
@@ -72,7 +72,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </header>
 <main>
  <section class="card" id="now"><h2>Now</h2><div class="mut">Pick a location…</div></section>
- <section class="card" id="windmap"><h2>Wind map · knots</h2><div id="wmWrap"><div id="wmMap"></div><div id="wmLeg"></div><div id="wmMsg"></div></div><div class="wmBar"><input type="range" id="wmT" min="0" max="0" value="0" aria-label="Forecast hour"><span id="wmLbl">…</span></div><div class="mut" id="wmModel"></div><div id="wmRead"></div></section>
+ <section class="card" id="windmap"><h2>Wind map · knots</h2><div id="wmWrap"><div id="wmMap"></div><div id="wmLeg"></div><div id="wmMsg"></div></div><div class="wmBar"><span id="wmLbl">…</span></div><div id="wmDays"></div><div class="mut" id="wmModel"></div><div id="wmRead"></div></section>
  <section class="card" id="wind"><h2>Wind (mph)</h2><div class="mut">—</div></section>
  <section class="card" id="pressure"><h2>Barometric pressure</h2><div class="mut">—</div></section>
  <section class="card" id="gonogo"><h2>Go / No-Go</h2><div class="mut">—</div></section>
@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.23 · Oct 19 2026";// bump on every push
+const BUILD="v0.9.24 · Oct 19 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1046,64 +1046,397 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   root.WindFlow = {create:create, colorFor:colorFor, legendStops:legendStops, _selfTest:_selfTest, _sampleField:sampleField};
 })(typeof window!=='undefined'?window:this);
 
-// ===== Wind map (v0.9.23): Leaflet map + Open-Meteo grid + WindFlow moving lines =====
+/* ---- DayStrip by Coder (/workspace/brinecast/daystrip.js), inlined; edits: explicit 'max/gust' labels, inset focus ring (no white line) ---- */
+/* DayStrip — swipeable day blocks with scrub-able hour bars for the Brinecast wind page.
+   DayStrip.create(container, {hours:[{t,kt,gust,fromDeg,model}], tz, onHour(t)}) -> {setHours, setSelected, destroy}
+   t = unix seconds (ms also accepted if > 1e12). Days grouped in opts.tz via Intl, so DST days get 23/25 hours. */
+(function (root) {
+  'use strict';
+  var STOPS = [[0,'#6e8fb0'],[5,'#3fb6c8'],[10,'#4fd17a'],[15,'#e6e04a'],[20,'#f2a33a'],[25,'#ec5a3c'],[30,'#c83cc8']];
+  function fallbackColor(kt){ kt=+kt>0?+kt:0; if(kt>=30) return STOPS[6][1];
+    var i=Math.floor(kt/5),f=(kt-i*5)/5,a=STOPS[i][1],b=STOPS[i+1][1],h='#';
+    for(var c=1;c<7;c+=2){var x=Math.round(parseInt(a.substr(c,2),16)*(1-f)+parseInt(b.substr(c,2),16)*f);h+=(x<16?'0':'')+x.toString(16);} return h; }
+  function colorFor(kt){ return (root.WindFlow && root.WindFlow.colorFor) ? root.WindFlow.colorFor(kt) : fallbackColor(kt); }
+  var CARD=['N','NNE','NE','ENE','E','ESE','SE','SSE','S','SSW','SW','WSW','W','WNW','NW','NNW'];
+  function cardinal(d){ return CARD[Math.round((((d%360)+360)%360)/22.5)%16]; }
+  var CSS = '.ds-root{position:relative;font:13px/1.25 system-ui,sans-serif;color:#e8eef5;outline:none}'+
+    '.ds-root:focus-visible .ds-sel .ds-in{box-shadow:inset 0 0 0 2px #fff}'+
+    '.ds-scroll{display:flex;overflow-x:auto;overflow-y:hidden;scroll-snap-type:x mandatory;-webkit-overflow-scrolling:touch;scrollbar-width:none;gap:0}'+
+    '.ds-scroll::-webkit-scrollbar{display:none}'+
+    '.ds-day{flex:0 0 33.3333%;min-width:0;box-sizing:border-box;padding:4px;scroll-snap-align:start;cursor:pointer}'+
+    '.ds-in{overflow:hidden;border-radius:10px;background:#16222f;padding:6px 6px 5px;border:1px solid #233345;height:100%;box-sizing:border-box}'+
+    '.ds-sel .ds-in{background:#1f3550;border-color:#5aa9e6}'+
+    '.ds-h{font-weight:600;white-space:nowrap}.ds-d{opacity:.7;font-weight:400}'+
+    '.ds-w{margin:2px 0;white-space:nowrap}.ds-w b{font-size:15px}.ds-g{opacity:.75}'+
+    '.ds-dir{white-space:nowrap}.ds-arr{display:inline-block;width:14px;text-align:center}'+
+    '.ds-strip{display:flex;align-items:flex-end;height:34px;margin-top:2px;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:ew-resize}'+
+    '.ds-bar{flex:1 1 0;margin:0 .5px;border-radius:1px;min-height:2px;opacity:.85}'+
+    '.ds-bar.on{opacity:1;outline:1.5px solid #fff;outline-offset:0}'+
+    '.ds-f{margin-top:3px;font-size:12px;min-height:30px;line-height:15px}'+
+    '.ds-strip{position:relative}.ds-tick{position:absolute;top:-3px;bottom:-3px;width:0;border-left:1.5px dashed #cfd8e3;pointer-events:none}'+
+    '.ds-swl{position:absolute;top:-2px;font-size:9px;line-height:1;white-space:nowrap;color:#cfd8e3;background:#16222fcc;padding:0 2px;pointer-events:none}'+
+    '.ds-swf{font-size:10px;opacity:.75;margin-top:2px;line-height:12px}'+
+    '.ds-lrw{height:15px;margin-top:1px}.ds-lr{display:inline-block;font-size:9px;font-weight:400;opacity:.7;border:1px solid #5b6b7d;border-radius:6px;padding:0 4px;line-height:12px}'+
+    '.ds-live{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0)}';
+  function injectCSS(){ if(document.getElementById('daystrip-css')) return;
+    var s=document.createElement('style'); s.id='daystrip-css'; s.textContent=CSS; document.head.appendChild(s); }
+
+  function create(container, opts){
+    opts = opts || {}; injectCSS();
+    var tz = opts.tz || Intl.DateTimeFormat().resolvedOptions().timeZone;
+    var onHour = opts.onHour || function(){};
+    var fKey = new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'});
+    var fHead = new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',month:'short',day:'numeric'});
+    var fWk = new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short'});
+    var fMD = new Intl.DateTimeFormat('en-US',{timeZone:tz,month:'numeric',day:'numeric'});
+    var fHr = new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',timeZoneName:'short'});
+    var fH24 = new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23'});
+    var rootEl = document.createElement('div'); rootEl.className='ds-root'; rootEl.tabIndex=0;
+    rootEl.setAttribute('role','group'); rootEl.setAttribute('aria-roledescription','day strip');
+    rootEl.setAttribute('aria-label','Wind by day. Left and right arrows change hour, up and down change day.');
+    var sc = document.createElement('div'); sc.className='ds-scroll'; rootEl.appendChild(sc);
+    var live = document.createElement('div'); live.className='ds-live'; live.setAttribute('aria-live','polite'); rootEl.appendChild(live);
+    container.appendChild(rootEl);
+    var days=[], flat=[], sel=-1, dayEls=[], swT=null, LR='longer-range forecast';
+
+    function norm(t){ return t>1e12 ? Math.round(t/1000) : t; }
+    function hourLabel(h){ return fHr.format(new Date(h.t*1000)).replace(/\s+/g,' '); }  // "1 AM EDT"
+    function group(hours){
+      var hs = hours.map(function(h){ return {t:norm(h.t),model:h.model,kt:+h.kt,gust:h.gust==null?null:+h.gust,fromDeg:+h.fromDeg,model:h.model}; })
+        .filter(function(h){return isFinite(h.t);}).sort(function(a,b){return a.t-b.t;});
+      var out=[], cur=null;
+      hs.forEach(function(h){ var k=fKey.format(new Date(h.t*1000));
+        if(!cur||cur.key!==k){ cur={key:k,hours:[]}; out.push(cur); } cur.hours.push(h); });
+      out.forEach(function(d){ var mx=0,mg=0,sx=0,sy=0;
+        d.hours.forEach(function(h){ if(h.kt>mx) mx=h.kt; var g=h.gust==null?h.kt:h.gust; if(g>mg) mg=g;
+          var w=Math.max(h.kt,0.01), r=h.fromDeg*Math.PI/180; sx+=w*Math.sin(r); sy+=w*Math.cos(r); });
+        d.max=mx; d.gust=mg; d.fromDeg=((Math.atan2(sx,sy)*180/Math.PI)+360)%360; });
+      return out;
+    }
+    function render(){
+      sc.textContent=''; dayEls=[]; flat=[]; swT=null; var seenH=false;
+      days.forEach(function(d){ d.hours.forEach(function(h){ if(h.model==='hrrr'||h.model==='blend') seenH=true; else if(h.model==='best'&&seenH&&swT==null) swT=h.t; }); });
+      var scale = Math.max(20, days.reduce(function(m,d){return Math.max(m,d.gust);},0));
+      days.forEach(function(d,di){
+        var el=document.createElement('div'); el.className='ds-day'; el.dataset.day=di;
+        var t0=new Date(d.hours[0].t*1000);
+        var past = swT!=null && d.hours[0].t>=swT, swI = swT==null?-1:d.hours.findIndex(function(h){return h.t===swT;});
+        el.setAttribute('aria-label', fHead.format(t0)+': max '+Math.round(d.max)+' knots, gusts '+Math.round(d.gust)+', from '+cardinal(d.fromDeg)+', '+d.hours.length+' hours'+
+          (swI>=0?', switches to longer-range forecast at '+hourLabel(d.hours[swI]):past?', longer-range forecast':''));
+        var inn=document.createElement('div'); inn.className='ds-in'; el.appendChild(inn);
+        inn.innerHTML='<div class="ds-h">'+fWk.format(t0)+' <span class="ds-d">'+fMD.format(t0)+'</span>'+'</div>'+
+          '<div class="ds-w">max <b>'+Math.round(d.max)+'</b> kt</div><div class="ds-g">gust '+Math.round(d.gust)+' kt</div>'+
+          '<div class="ds-dir"><span class="ds-arr" aria-hidden="true" style="transform:rotate('+((d.fromDeg+180)%360)+'deg)">↑</span> '+cardinal(d.fromDeg)+'</div><div class="ds-lrw">'+(past&&swI<0?'<span class="ds-lr">longer-range</span>':'')+'</div>';
+        var strip=document.createElement('div'); strip.className='ds-strip'; strip.setAttribute('aria-hidden','true');
+        d.bars=[]; d.base=flat.length;
+        d.hours.forEach(function(h,hi){ var b=document.createElement('div'); b.className='ds-bar';
+          b.style.height=Math.max(6,Math.min(100,h.kt/scale*100))+'%'; b.style.background=colorFor(h.kt);
+          strip.appendChild(b); d.bars.push(b); flat.push({di:di,hi:hi,h:h}); });
+        inn.appendChild(strip);
+        if (swI>=0){ var pct=swI/d.hours.length*100, tk=document.createElement('div'); tk.className='ds-tick'; tk.style.left=pct+'%'; strip.appendChild(tk);
+          d.sw={strip:strip, pct:pct}; }
+        var f=document.createElement('div'); f.className='ds-f'; inn.appendChild(f); d.foot=f;
+        sc.appendChild(el); dayEls.push(el);
+        if (d.sw){ var lb=document.createElement('div'); lb.className='ds-swl'; lb.textContent=LR; lb.style.left='calc('+d.sw.pct+'% + 3px)'; d.sw.strip.appendChild(lb);
+          var sw=d.sw.strip.clientWidth; if (!sw || lb.offsetLeft+lb.offsetWidth>sw){ lb.remove(); var ff=document.createElement('div'); ff.className='ds-swf'; ff.setAttribute('aria-hidden','true');
+            ff.textContent='▏'+LR+' from '+hourLabel(d.hours[swI]).replace(/ [A-Z]{3,4}$/,''); inn.insertBefore(ff,f); } }
+        bindStrip(strip, d);
+        el.addEventListener('click', function(e){ if(e.target.closest('.ds-strip')) return; selectFlat(defaultIndex(d), true, true); });
+      });
+    }
+    function defaultIndex(d){
+      var now=Date.now()/1000, h=d.hours, best=-1;
+      if (now>=h[0].t && now<=h[h.length-1].t+3599){ var bd=1e18; h.forEach(function(x,i){var dd=Math.abs(x.t-now); if(dd<bd){bd=dd;best=i;}}); }
+      else { h.forEach(function(x,i){ if(best<0 && +fH24.format(new Date(x.t*1000))===12) best=i; }); if(best<0) best=Math.floor(h.length/2); }
+      return d.base+best;
+    }
+    // Pointer-captured scrub. touch-action:pan-y lets vertical page scroll through; horizontal drags never scroll the strip.
+    function bindStrip(strip, d){
+      var pid=null;
+      function idxAt(x){ var r=strip.getBoundingClientRect(); var i=Math.floor((x-r.left)/r.width*d.hours.length);
+        return d.base+Math.max(0,Math.min(d.hours.length-1,i)); }
+      strip.addEventListener('pointerdown', function(e){ if(e.button>0) return; pid=e.pointerId;
+        try{ strip.setPointerCapture(pid); }catch(_){} selectFlat(idxAt(e.clientX), true, false); e.preventDefault(); });
+      strip.addEventListener('pointermove', function(e){ if(e.pointerId!==pid) return; selectFlat(idxAt(e.clientX), true, false); });
+      function end(e){ if(e.pointerId!==pid) return; pid=null; try{ strip.releasePointerCapture(e.pointerId);}catch(_){} }
+      strip.addEventListener('pointerup', end); strip.addEventListener('pointercancel', end);
+      strip.addEventListener('touchmove', function(e){ if(pid!=null && e.cancelable) e.preventDefault(); }, {passive:false}); // iOS < 13 safety
+    }
+    function scrollIntoView(di, smooth){
+      var el=dayEls[di]; if(!el) return; var L=el.offsetLeft, R=L+el.offsetWidth, s=sc.scrollLeft, w=sc.clientWidth;
+      var to = L<s ? L : (R>s+w ? R-w : s);
+      if (to!==s){ if(sc.scrollTo) sc.scrollTo({left:to, behavior:smooth?'smooth':'auto'}); else sc.scrollLeft=to; }
+    }
+    function selectFlat(i, notify, scroll){
+      if(!flat.length) return; i=Math.max(0,Math.min(flat.length-1,i));
+      var changed = i!==sel, prev=flat[sel];
+      if (prev){ days[prev.di].bars[prev.hi].classList.remove('on'); dayEls[prev.di].classList.remove('ds-sel'); days[prev.di].foot.textContent=''; dayEls[prev.di].removeAttribute('aria-current'); }
+      sel=i; var c=flat[i], d=days[c.di];
+      d.bars[c.hi].classList.add('on'); dayEls[c.di].classList.add('ds-sel'); dayEls[c.di].setAttribute('aria-current','true');
+      var lr = swT!=null && c.h.t>=swT, txt=hourLabel(c.h)+' · '+Math.round(c.h.kt)+' kt'+(lr?' · longer-range':''); d.foot.textContent=txt; d.foot.title=txt+(lr?' forecast':'');
+      rootEl.setAttribute('aria-valuetext', fHead.format(new Date(c.h.t*1000))+' '+txt);
+      live.textContent = fHead.format(new Date(c.h.t*1000))+', '+hourLabel(c.h)+', '+Math.round(c.h.kt)+' knots'+(c.h.gust!=null?', gusts '+Math.round(c.h.gust):'')+', from '+cardinal(c.h.fromDeg)+(lr?', '+LR:'');
+      if (scroll) scrollIntoView(c.di, true);
+      if (changed && notify) onHour(c.h.t);
+    }
+    function onKey(e){
+      if(sel<0) return; var c=flat[sel], k=e.key, n=null;
+      if(k==='ArrowRight') n=sel+1; else if(k==='ArrowLeft') n=sel-1;
+      else if(k==='ArrowDown'||k==='PageDown'){ var d=days[c.di+1]; if(d) n=d.base+Math.min(c.hi,d.hours.length-1); }
+      else if(k==='ArrowUp'||k==='PageUp'){ var d2=days[c.di-1]; if(d2) n=d2.base+Math.min(c.hi,d2.hours.length-1); }
+      else if(k==='Home') n=days[c.di].base; else if(k==='End') n=days[c.di].base+days[c.di].hours.length-1;
+      if(n==null) return; e.preventDefault(); selectFlat(n, true, true);
+    }
+    rootEl.addEventListener('keydown', onKey);
+    function findT(t){ t=norm(t); var bi=-1,bd=1e18; flat.forEach(function(f,i){var d=Math.abs(f.h.t-t); if(d<bd){bd=d;bi=i;}}); return bi; }
+    var api = {
+      setHours: function(hours){ var keep = sel>=0 ? flat[sel].h.t : null; days=group(hours||[]); sel=-1; render();
+        if(!flat.length) return; var i = keep!=null ? findT(keep) : -1; if(i<0) i=days.length?defaultIndex(days[0]):0;
+        // prefer today's "now" hour if present
+        if(keep==null){ var now=Date.now()/1000; days.forEach(function(d){ if(now>=d.hours[0].t&&now<d.hours[d.hours.length-1].t+3600) i=defaultIndex(d); }); }
+        selectFlat(i, false, false); scrollIntoView(flat[i].di, false); },
+      setSelected: function(t){ var i=findT(t); if(i>=0) selectFlat(i, false, true); },
+      destroy: function(){ rootEl.removeEventListener('keydown', onKey); if(rootEl.parentNode) rootEl.parentNode.removeChild(rootEl); days=[]; flat=[]; },
+      _days: function(){ return days.map(function(d){return {key:d.key,n:d.hours.length,max:d.max,gust:d.gust,fromDeg:d.fromDeg,labels:d.hours.map(hourLabel)};}); },
+      _switchT: function(){ return swT; }, _selected: function(){ return sel>=0?flat[sel].h.t:null; }, el: rootEl, scroller: sc
+    };
+    api.setHours(opts.hours||[]);
+    return api;
+  }
+  root.DayStrip = {create:create, colorFor:colorFor, cardinal:cardinal};
+})(typeof window!=='undefined'?window:this);
+
+/* ---- WindData by Coder (/workspace/brinecast/winddata.js), inlined; used with blendMode:"none", allowCorrection:false, capture:true, captureMax:2 ---- */
+/* winddata.js — Brinecast wind-map data layer (requests, parse, rotation guard, HRRR→best blend, WindFlow field, cache).
+   Browser global `WindData` or Node module. No deps. All times are unix seconds (UTC), so DST days (Nov 1 = 25 local h) need no special case. */
+(function(root){
+  'use strict';
+  var N=9, SPAN_MI=100, CHECK=[1,4,7], VARS='wind_speed_10m,wind_direction_10m,wind_gusts_10m';
+  var DEF={ nGrid:N, spanMi:SPAN_MI, forecastDays:7,
+    rotShift:-11.5, rotTol:2.5, minPts:7, maxSpread:2.5, minHourFrac:0.6, minHours:6,   // detector
+    refetch:true, maxRefetches:2, allowCorrection:false, blendHours:6, blendMode:'none', agreeDeg:3, runLagSec:5400, capture:false, captureKey:'brinecast.rotSamples', captureMax:2, ttlMs:3600e3 };
+  var R2D=180/Math.PI;
+  function wrap(d){ d=((d%360)+540)%360-180; return d===-180?180:d; }
+  function uv(kt,from){ var r=from/R2D; return [-kt*Math.sin(r), -kt*Math.cos(r)]; }          // blow-toward u east, v north
+  function spdDir(u,v){ return [Math.sqrt(u*u+v*v), ((Math.atan2(-u,-v)*R2D)+360)%360]; }
+  function med(a){ a=a.slice().sort(function(x,y){return x-y;}); var n=a.length; return n?(n%2?a[n>>1]:(a[n/2-1]+a[n/2])/2):null; }
+
+  // 1. requests
+  function grid(lat,lon,o){ o=Object.assign({},DEF,o); var n=o.nGrid, dl=o.spanMi/69, dn=dl/Math.cos(lat/R2D), la=[], lo=[];
+    for(var i=0;i<n;i++)for(var j=0;j<n;j++){ la.push(+(lat+dl/2-i*dl/(n-1)).toFixed(3)); lo.push(+(lon-dn/2+j*dn/(n-1)).toFixed(3)); }
+    var ci=[]; CHECK.forEach(function(i){CHECK.forEach(function(j){ci.push(i*n+j);});});
+    return {lat:la, lon:lo, n:n, lat0:la[0], lon0:lo[0], dLat:-dl/(n-1), dLon:dn/(n-1), check:ci}; }
+  function buildRequests(lat,lon,o){ o=Object.assign({},DEF,o); var g=grid(lat,lon,o);
+    var q='&hourly='+VARS+'&wind_speed_unit=kn&timeformat=unixtime&forecast_days='+o.forecastDays, B='https://api.open-meteo.com/v1/forecast?';
+    var ncep=B+'latitude='+g.lat.join(',')+'&longitude='+g.lon.join(',')+q+'&models=ncep_hrrr_conus,best_match';
+    var ecmwf=B+'latitude='+g.check.map(function(k){return g.lat[k];}).join(',')+'&longitude='+g.check.map(function(k){return g.lon[k];}).join(',')+q+'&models=ecmwf_ifs025';
+    // Open-Meteo weight ≈ locations × models × max(1,vars/10) × max(1,days/14) (pricing page). 3 vars, 7 d → 1 per location-model.
+    var w1=g.lat.length*2, w2=g.check.length, wFold=g.lat.length*3;
+    return {grid:g, ncep:ncep, ecmwf:ecmwf, weight:{ncep:w1, ecmwf:w2, total:w1+w2, ifFolded:wFold, withRefetch:2*(w1+w2)}}; }
+
+  // 2. parse model-suffixed (or plain single-model) responses
+  function parse(json, model){ var A=Array.isArray(json)?json:[json]; var sfx=model?'_'+model:'';
+    var t=A[0].hourly.time.map(Number); return {t:t, pts:A.map(function(p){ var h=p.hourly;
+      var g=function(k){ return h[k+sfx]||h[k]||[]; };
+      return {s:g('wind_speed_10m'), d:g('wind_direction_10m'), g:g('wind_gusts_10m')}; })}; }
+  function parseAll(ncepJson, ecmwfJson){ return {hrrr:parse(ncepJson,'ncep_hrrr_conus'), best:parse(ncepJson,'best_match'), ecmwf:ecmwfJson?parse(ecmwfJson,null):null}; }
+
+  // 3. rotation detector. diffs: per hour t -> 9 NCEP−ECMWF wrapped diffs (best_match, which equals HRRR-rotation-wise).
+  function checkDiffs(P, check){ var E=P.ecmwf, out={}; if(!E) return out; var ei=new Map(); E.t.forEach(function(t,k){ei.set(t,k);});
+    P.best.t.forEach(function(t,k){ var ke=ei.get(t); if(ke==null) return; var a=[];
+      for(var i=0;i<check.length;i++){ var x=P.best.pts[check[i]].d[k], y=E.pts[i].d[ke], s=P.best.pts[check[i]].s[k];
+        a.push(x==null||y==null||s==null||s<3?null:wrap(x-y)); } out[t]=a; }); return out; }
+  // baseline: per-hour per-point diffs from a previously accepted load (cache) or a second fetch. A fixed −7° baseline is NOT used:
+  // real NCEP−ECMWF medians range about −16°…+91° between hours on saved data, so only a same-hour baseline isolates the 11.5° jump.
+  function detect(cur, base, o){ o=Object.assign({},DEF,o); var hrs=0, hit=0, jumps=[];
+    Object.keys(cur).forEach(function(t){ var a=cur[t], b=base&&base[t]; if(!b) return; var j=[];
+      for(var i=0;i<a.length;i++) if(a[i]!=null&&b[i]!=null) j.push(wrap(a[i]-b[i]));
+      if(j.length<o.minPts) return; hrs++;
+      var inb=j.filter(function(x){return Math.abs(x-o.rotShift)<=o.rotTol;}), m=med(inb.length?inb:j);
+      var sp=inb.length?Math.sqrt(inb.reduce(function(s,x){return s+(x-m)*(x-m);},0)/inb.length):99;
+      if(inb.length>=o.minPts && sp<=o.maxSpread){ hit++; jumps.push(m); } });
+    var frac=hrs?hit/hrs:0, rotated=hrs>=o.minHours && frac>=o.minHourFrac;
+    return {rotated:rotated, hours:hrs, hitHours:hit, frac:+frac.toFixed(3), shift:jumps.length?+med(jumps).toFixed(2):null,
+      reason: !base?'no baseline':hrs<o.minHours?'only '+hrs+' comparable hours':(rotated?'rotated: ':'ok: ')+hit+'/'+hrs+' hours with ≥'+o.minPts+'/9 points at '+o.rotShift+'±'+o.rotTol+'°'}; }
+  // compare two loads with no prior baseline: rotation is always CCW, so the one that is −11.5° vs the other is the bad one
+  function detectPair(dA, dB, o){ var ab=detect(dA,dB,o), ba=detect(dB,dA,o); return {aRotated:ab.rotated, bRotated:ba.rotated, ab:ab, ba:ba}; }
+
+  // 4. action
+  function correct(P, shift){ ['hrrr','best'].forEach(function(m){ P[m].pts.forEach(function(p){ p.d=p.d.map(function(x){ return x==null?null:(((x-shift)%360)+360)%360; }); }); });
+    P.corrected=-shift; return P; }
+  /* Baseline: accepted only after two loads of the same run agree (median |Δ| at check points <= agreeDeg). Reset on run change.
+     Responses carry no run time (generationtime_ms is compute time), so runId = HRRR hourly cycle from fetch time minus runLagSec. */
+  // runId = model init time, unix seconds. Preferred source: https://api.open-meteo.com/data/<model>/static/meta.json
+  // (metadata calls don't count toward Open-Meteo limits). Fallback: HRRR hourly cycle from fetch time minus runLagSec.
+  function metaUrl(model){ return 'https://api.open-meteo.com/data/'+(model||'ncep_hrrr_conus')+'/static/meta.json'; }
+  function runIdFrom(fetchedAtMs, o){ o=Object.assign({},DEF,o); return Math.floor((fetchedAtMs/1000-o.runLagSec)/3600)*3600; }
+  function runIdFromMeta(meta, fetchedAtMs, o){ var t=meta&&+meta.last_run_initialisation_time;
+    if(t>1e9 && isFinite(t)) return t; return fetchedAtMs!=null ? runIdFrom(fetchedAtMs, o) : null; }
+  function medAbsDiff(a,b){ var j=[]; Object.keys(a).forEach(function(t){ var x=a[t], y=b[t]; if(!y) return;
+    for(var i=0;i<x.length;i++) if(x[i]!=null&&y[i]!=null) j.push(Math.abs(wrap(x[i]-y[i]))); }); return j.length?med(j):null; }
+  function createBaseline(o){ o=Object.assign({},DEF,o); var st={run:null, pending:null, accepted:null};
+    return { state:st,
+      offer:function(diffs, runId){
+        if(runId!==st.run){ st.run=runId; st.pending=null; st.accepted=null; }
+        if(st.accepted) { var d=detect(diffs, st.accepted, o); return {status:'checked', det:d}; }
+        if(!st.pending){ st.pending=diffs; return {status:'unchecked', det:null, reason:'first load of run, waiting for a second to agree'}; }
+        var m=medAbsDiff(diffs, st.pending);
+        if(m!=null && m<=o.agreeDeg){ st.accepted=st.pending; st.pending=null; return {status:'checked', det:detect(diffs, st.accepted, o), agree:m}; }
+        var pr=detectPair(diffs, st.pending, o);
+        if(pr.aRotated) return {status:'checked', det:pr.ab, agree:m, reason:'this load is rotated against the pending one'}; // keep pending
+        st.pending=diffs;  // pending was the rotated/odd one (or they just disagree): replace it, never accept
+        return {status:'unchecked', det:null, agree:m, reason:'disagreed with pending load ('+(m==null?'n/a':m.toFixed(1))+'°); replaced'}; },
+      reset:function(){ st.run=null; st.pending=null; st.accepted=null; } }; }
+
+  // capture of real rotated samples: wind arrays only (lat/lon/elevation stripped), newest captureMax kept
+  function strip(json){ var A=Array.isArray(json)?json:[json]; return A.map(function(p){ var h={}; Object.keys(p.hourly||{}).forEach(function(k){ h[k]=p.hourly[k]; }); return {hourly:h}; }); }
+  function captureSample(raw, det, o){ o=Object.assign({},DEF,o); var S=o.storage||(typeof localStorage!=='undefined'?localStorage:null); if(!S||!raw) return false;
+    var list=[]; try{ list=JSON.parse(S.getItem(o.captureKey)||'[]'); }catch(_){}
+    list.push({at:new Date().toISOString(), runId:o.runId, det:{shift:det.shift, frac:det.frac, hours:det.hours}, ncep:strip(raw.ncep), ecmwf:raw.ecmwf?strip(raw.ecmwf):null});
+    while(list.length>o.captureMax) list.shift();
+    while(list.length){ try{ S.setItem(o.captureKey, JSON.stringify(list)); return true; }catch(e){ list.shift(); } } return false; }
+  function exportSamples(o){ o=Object.assign({},DEF,o); var S=o.storage||(typeof localStorage!=='undefined'?localStorage:null); return S?(S.getItem(o.captureKey)||'[]'):'[]'; }
+
+  /* decide(P, check, baseline, o): baseline = createBaseline() manager (recommended; needs o.runId) or a raw diffs object.
+     o.refetches = refetches already made. Returns {status:'checked'|'unchecked', needRefetch, corrected, directionsSuspect, det, diffs}.
+     Rotated & refetches < maxRefetches(2) -> needRefetch. Still rotated -> unchanged + directionsSuspect. Correction only with allowCorrection:true.
+     o.capture:true + o.raw={ncep,ecmwf} saves the raw sample when flagged (no extra requests). */
+  function decide(P, check, base, o){ o=Object.assign({},DEF,o); var n=o.refetches||0, d=checkDiffs(P,check), r;
+    if(base && typeof base.offer==='function') r=base.offer(d, o.runId); else r=base?{status:'checked', det:detect(d,base,o)}:{status:'unchecked', det:null};
+    var det=r.det||{rotated:false, reason:r.reason||'no accepted baseline'}, out={status:r.status, needRefetch:false, corrected:false, directionsSuspect:false, det:det, diffs:d};
+    P.directionsSuspect=false; P.checked=r.status==='checked';
+    if(!det.rotated) return out;
+    if(o.capture) captureSample(o.raw, det, o);
+    if(o.refetch && n<o.maxRefetches){ out.needRefetch=true; return out; }
+    if(o.allowCorrection){ correct(P, det.shift!=null?det.shift:o.rotShift); out.corrected=true; out.diffs=checkDiffs(P,check); return out; }
+    P.directionsSuspect=true; out.directionsSuspect=true; return out; }
+
+  // 5. blend → hours [{t, model, corrected, s[], d[], g[], u, v}]
+  function blend(P, o){ o=Object.assign({},DEF,o); var H=P.hrrr, B=P.best, hi=new Map(); H.t.forEach(function(t,k){hi.set(t,k);});
+    var n=B.pts.length, full=function(k){ for(var i=0;i<n;i++){ if(H.pts[i].s[k]==null||H.pts[i].d[k]==null) return false; } return true; };
+    var lastT=-Infinity; H.t.forEach(function(t,k){ if(full(k)) lastT=t; });
+    var W=o.blendHours, out=[];
+    B.t.forEach(function(t,k){ var kh=hi.get(t), dh=(lastT-t)/3600;  // hours before last full HRRR hour
+      // 'none' (default): real HRRR→best switch after the last full HRRR hour. 'before': ramp HRRR→best over the W hours ending at lastT.
+      var w = (kh==null||!isFinite(lastT)||dh<0||!full(kh)) ? 0 : (o.blendMode==='before' && dh<W) ? (dh+1)/(W+1) : 1;
+      var u=new Float32Array(n), v=new Float32Array(n), s=new Float32Array(n), d=new Float32Array(n), g=new Float32Array(n), ok=true;
+      for(var i=0;i<n;i++){ var bs=B.pts[i].s[k], bd=B.pts[i].d[k], bg=B.pts[i].g[k];
+        var a = bs==null||bd==null ? null : uv(bs,bd), c = w>0 ? uv(H.pts[i].s[kh], H.pts[i].d[kh]) : null;
+        if(!a && !(w===1&&c)){ ok=false; break; }
+        var ww = a ? w : 1, U = ww*(c?c[0]:0)+(1-ww)*(a?a[0]:0), V = ww*(c?c[1]:0)+(1-ww)*(a?a[1]:0);
+        u[i]=U; v[i]=V; var sd=spdDir(U,V); s[i]=sd[0]; d[i]=sd[1];
+        var hg = w>0 ? H.pts[i].g[kh] : null;
+        g[i] = hg!=null&&bg!=null ? ww*hg+(1-ww)*bg : (ww>=0.5&&hg!=null ? hg : bg!=null ? bg : hg!=null ? hg : NaN); }
+      if(!ok) return; out.push({t:t, model: w>=1?'hrrr':w>0?'blend':'best', w:+w.toFixed(3), checked:!!P.checked, corrected:!!P.corrected, directionsSuspect:!!P.directionsSuspect, s:s, d:d, g:g, u:u, v:v}); });
+    return {hours:out, directionsSuspect:!!P.directionsSuspect, lastHrrrT:isFinite(lastT)?lastT:null}; }
+
+  function fieldAt(hours, g, t){ if(!hours.length) return null; var bi=0, bd=Infinity;
+    hours.forEach(function(h,i){ var x=Math.abs(h.t-t); if(x<bd){bd=x;bi=i;} }); var h=hours[bi];
+    return {t:h.t, model:h.model, corrected:h.corrected, field:{lat0:g.lat0, lon0:g.lon0, dLat:g.dLat, dLon:g.dLon, nLat:g.n, nLon:g.n, u:h.u, v:h.v}}; }
+
+  // 6. cache
+  function cacheKey(lat,lon,t){ var q=function(x){return (Math.round(x*4)/4).toFixed(2);}; return 'wd:'+q(lat)+','+q(lon)+':'+Math.floor((t||Date.now()/1000)/3600); }
+  function cachePut(store,key,data){ var e={fetchedAt:Date.now(), data:data}; store.set(key,e); return e; }
+  function cacheGet(store,key,o){ o=Object.assign({},DEF,o); var e=store.get(key); return e && Date.now()-e.fetchedAt<o.ttlMs ? e : null; }
+
+  var api={defaults:DEF, wrap:wrap, uv:uv, spdDir:spdDir, grid:grid, buildRequests:buildRequests, parse:parse, parseAll:parseAll,
+    checkDiffs:checkDiffs, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
+    cacheKey:cacheKey, cacheGet:cacheGet, cachePut:cachePut};
+  if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.WindData=api;
+})(this);
+
+// ===== Wind map (v0.9.24): Leaflet map + Open-Meteo grid + WindFlow moving lines + DayStrip =====
 // Times: Open-Meteo returns unixtime (UTC seconds); every label is formatted in America/New_York via Intl, so EDT->EST (Nov 1) is handled.
-const WM={map:null,wf:null,mk:null,area:null,cache:new Map(),hi:0,loadP:null,locKey:"",exactSeq:0};
-const WM_N=11,WM_SPAN_MI=130;// 11x11 grid over ~130 mi (view is ~100 mi across)
+const WM={map:null,wf:null,ds:null,mk:null,area:null,cache:new Map(),hi:0,loadP:null,locKey:"",exactSeq:0,spot:null};
+const WM_N=9;// 9x9 grid over ~100 mi (WindData defaults)
 const WM_TZ="America/New_York",wmFmt=new Intl.DateTimeFormat("en-US",{timeZone:WM_TZ,weekday:"short",hour:"numeric",timeZoneName:"short"});
 function wmLabel(ms){const p=Object.fromEntries(wmFmt.formatToParts(new Date(ms)).map(x=>[x.type,x.value]));return `${p.weekday} ${p.hour} ${p.dayPeriod} ${p.timeZoneName}`}
 const WM_CARD=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"],wmCard=d=>WM_CARD[Math.round(((d%360)+360)%360/22.5)%16];
 // meteorological "from" direction -> blow-toward components. A north wind (dir 0) gives v<0: it streams south.
 const wmUV=(spd,dir)=>{const r=dir*Math.PI/180;return[-spd*Math.sin(r),-spd*Math.cos(r)]};
+const wmFrom=(u,v)=>(Math.atan2(-u,-v)*180/Math.PI+360)%360;
 function wmLoadLeaflet(){if(window.L)return Promise.resolve();if(WM.loadP)return WM.loadP;
  WM.loadP=new Promise((res,rej)=>{const c=document.createElement("link");c.rel="stylesheet";c.href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";c.integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=";c.crossOrigin="";document.head.appendChild(c);
   const s=document.createElement("script");s.src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";s.integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=";s.crossOrigin="";s.onload=()=>res();s.onerror=()=>{WM.loadP=null;rej(new Error("map library didn't load"))};document.head.appendChild(s)});return WM.loadP}
 function wmMsg(t,retry){const m=$("wmMsg");m.style.display=t?"block":"none";m.innerHTML=t?esc(t)+(retry?' <button id="wmRetry">Retry</button>':""):"";if(retry)$("wmRetry").onclick=()=>{wmMsg("");if(WM.map&&window.L){WM.area=null;wmEnsureArea()}else wmShow(true)}}
-function wmAreaFor(lat,lon){const dl=WM_SPAN_MI/69,dn=dl/Math.cos(lat*Math.PI/180),q=x=>Math.round(x*4)/4;// snap the area centre to 0.25 deg so the cache is reused
- const la=q(lat),lo=q(lon);return{key:la+","+lo,lat0:la+dl/2,lon0:lo-dn/2,dLat:-dl/(WM_N-1),dLon:dn/(WM_N-1),nLat:WM_N,nLon:WM_N,cLat:la,cLon:lo,dl,dn}}
 async function wmFetchJ(u,ms=20000){const ac=new AbortController(),t=setTimeout(()=>ac.abort(),ms);try{const r=await fetch(u,{signal:ac.signal});if(!r.ok)throw new Error("HTTP "+r.status+" from Open-Meteo");return await r.json()}catch(e){throw e.name=="AbortError"?new Error("Open-Meteo timed out"):e}finally{clearTimeout(t)}}
 const WM_Q="&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime";
-// one multi-point request per model: HRRR (3 km, ~18-48 h) and best_match for the rest; merged hour by hour
-function wmLoadArea(A){const C=WM.cache.get(A.key);if(C&&Date.now()-C.at<30*6e4)return Promise.resolve(C);WM.inf=WM.inf||new Map();if(WM.inf.has(A.key))return WM.inf.get(A.key);// one request in flight per area
+/* Data layer (v0.9.24) on Coder's WindData (winddata.js): 9x9 grid over ~100 mi in ONE request (models=ncep_hrrr_conus,best_match)
+   + ECMWF at 9 check points; HRRR->best_match blended over 6 h. Rotation guard (no data correction): the NCEP-ECMWF offset at the check
+   points is compared with the last accepted load for the same hours; a consistent ~11.5 deg CCW jump means a bad load -> refetch (max 2).
+   Still rotated -> shown with a "directions may be off" note. Cached 1 h per area in localStorage, with the fetch time shown.
+   Open-Meteo weight (pricing page): grid 81 pts x 2 models = 162, ECMWF 9 -> 171 per area load; +162 per refetch (max 2); 2 per exact point. */
+const WM_LS="wd2:",WM_TTL=3600e3,WM_RETRY=2;
+WM.calls=0;// weighted Open-Meteo calls made by the wind map this session (for tests / budget)
+const WM_SPAN=140;// grid span (mi): covers the whole ~120×135 mi phone view at zoom 8, still 9×9 = 81 points
+function wmAreaFor(lat,lon){const q=x=>Math.round(x*20)/20,la=q(lat),lo=q(lon),g=WindData.grid(la,lo,{spanMi:WM_SPAN}),dl=WM_SPAN/69,dn=dl/Math.cos(la*Math.PI/180);
+ return{key:la.toFixed(2)+","+lo.toFixed(2),g,lat0:g.lat0,lon0:g.lon0,dLat:g.dLat,dLon:g.dLon,nLat:g.n,nLon:g.n,cLat:la,cLon:lo,dl,dn}}
+const wmLSget=k=>{try{return JSON.parse(localStorage.getItem(WM_LS+k))}catch(e){return null}};
+function wmLSput(k,v){const s=JSON.stringify(v);for(let tries=0;tries<3;tries++){try{localStorage.setItem(WM_LS+k,s);return}catch(e){// full: drop the oldest wind entries
+  const ks=Object.keys(localStorage).filter(x=>x.startsWith(WM_LS+"d:")).sort((a,b)=>(wmLSget(a.slice(WM_LS.length))?.fetchedAt||0)-(wmLSget(b.slice(WM_LS.length))?.fetchedAt||0));if(!ks.length)return;localStorage.removeItem(ks[0])}}}
+async function wmGetLoad(A,which){const Q=WindData.buildRequests(A.cLat,A.cLon);const u=which=="ncep"?Q.ncep:Q.ecmwf;WM.calls+=which=="ncep"?Q.weight.ncep:Q.weight.ecmwf;return wmFetchJ(u,25000)}
+// forecast run id: HRRR's last_run_initialisation_time from Open-Meteo's model metadata (fetch-time guess if that fails)
+async function wmRunId(){let m=null;try{m=await wmFetchJ("https://api.open-meteo.com/data/ncep_hrrr_conus/static/meta.json",8000)}catch(e){console.warn("HRRR meta.json:",e.message)}
+ return{id:WindData.runIdFromMeta(m,Date.now()),src:m&&m.last_run_initialisation_time?"meta":"guess"}}
+const WM_WD={blendMode:"none",allowCorrection:false,capture:true,captureMax:2};
+// guard (no correction): baseline per area = WindData.createBaseline (accepted once two loads agree; resets on a new run), persisted in localStorage.
+async function wmGuarded(A,ec){const run=await wmRunId(),bm=WindData.createBaseline(WM_WD),st=wmLSget("b:"+A.key);if(st)Object.assign(bm.state,st);
+ let tries=0,nc,r;for(;;){nc=await wmGetLoad(A,"ncep");const P=WindData.parseAll(nc,ec);r=WindData.decide(P,A.g.check,bm,Object.assign({},WM_WD,{runId:run.id,refetches:tries,raw:{ncep:nc,ecmwf:ec}}));if(!r.needRefetch)break;tries++}
+ wmLSput("b:"+A.key,bm.state);WM.lastGuard={status:r.status,suspect:r.directionsSuspect,tries,run,reason:r.det&&r.det.reason};
+ return{nc,rot:!!r.directionsSuspect,tries,status:r.status,run,why:(r.det&&r.det.reason)||""}}
+function wmLoadArea(A){WM.inf=WM.inf||new Map();const C=WM.cache.get(A.key);if(C&&Date.now()-C.fetchedAt<WM_TTL)return Promise.resolve(C);if(WM.inf.has(A.key))return WM.inf.get(A.key);// one request in flight per area
  const P=wmLoadArea2(A).finally(()=>WM.inf.delete(A.key));WM.inf.set(A.key,P);return P}
-async function wmLoadArea2(A){const la=[],lo=[];
- for(let i=0;i<A.nLat;i++)for(let j=0;j<A.nLon;j++){la.push((A.lat0+i*A.dLat).toFixed(3));lo.push((A.lon0+j*A.dLon).toFixed(3))}
- const base=`https://api.open-meteo.com/v1/forecast?latitude=${la.join(",")}&longitude=${lo.join(",")}${WM_Q}`;
- const [bm,hr]=await Promise.all([wmFetchJ(base+"&forecast_days=7"),wmFetchJ(base+"&forecast_days=3&models=ncep_hrrr_conus").catch(e=>(console.warn("HRRR unavailable, using best_match only:",e.message),null))]);
- const P=Array.isArray(bm)?bm:[bm],Q=hr?(Array.isArray(hr)?hr:[hr]):null,T=P[0].hourly.time.map(x=>x*1000),n=P.length,hrI=new Map();if(Q)Q[0].hourly.time.forEach((t,k)=>hrI.set(t*1000,k));
- const H=T.map((t,k)=>{const kh=hrI.get(t);let src=P,kk=k,model="best_match";
-   if(Q&&kh!=null&&Q.every(p=>p.hourly.wind_speed_10m[kh]!=null&&p.hourly.wind_direction_10m[kh]!=null)){src=Q;kk=kh;model="hrrr"}
-   if(!src.every(p=>p.hourly.wind_speed_10m[kk]!=null))return null;
-   const u=new Float32Array(n),v=new Float32Array(n),s=new Float32Array(n),g=new Float32Array(n),d=new Float32Array(n);
-   src.forEach((p,i)=>{const h=p.hourly;s[i]=h.wind_speed_10m[kk];d[i]=h.wind_direction_10m[kk];g[i]=h.wind_gusts_10m[kk]??NaN;[u[i],v[i]]=wmUV(s[i],d[i])});
-   return{t,model,field:{lat0:A.lat0,lon0:A.lon0,dLat:A.dLat,dLon:A.dLon,nLat:A.nLat,nLon:A.nLon,u,v},s,g,d}}).filter(Boolean);
- const R={A,H,at:Date.now()};WM.cache.set(A.key,R);if(WM.cache.size>6)WM.cache.delete(WM.cache.keys().next().value);return R}
-const wmModelName=m=>m=="hrrr"?"NOAA HRRR 3 km (high-res US model)":"Open-Meteo best match (GFS/ECMWF blend)";
-function wmSetHour(k){const R=WM.area;if(!R||!R.H.length)return;WM.hi=Math.max(0,Math.min(R.H.length-1,k));const h=R.H[WM.hi];$("wmT").value=WM.hi;
- $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").textContent="Model: "+wmModelName(h.model)+" · Open-Meteo, "+WM_N+"×"+WM_N+" grid";WM.wf.setField(h.field);WM.wf.start();if(WM.tap)wmReadout(WM.tap.lat,WM.tap.lng,false)}
+function wmBuild(A,raw){const P=WindData.parseAll(raw.nc,raw.ec),B=WindData.blend(P,WM_WD);
+ const H=B.hours.map(h=>({t:h.t*1000,model:h.model,w:h.w,rot:raw.rot,why:raw.rot?raw.why:"",s:h.s,g:h.g,d:h.d,field:{lat0:A.lat0,lon0:A.lon0,dLat:A.dLat,dLon:A.dLon,nLat:A.nLat,nLon:A.nLon,u:h.u,v:h.v}}));
+ const fb=H.find(h=>h.model!="hrrr"&&B.lastHrrrT&&h.t>B.lastHrrrT*1000);return{A,H,lastH:B.lastHrrrT&&B.lastHrrrT*1000,switchT:fb?fb.t:null,fetchedAt:raw.fetchedAt,rot:raw.rot,guard:raw.why,tries:raw.tries,status:raw.status,run:raw.run}}
+async function wmLoadArea2(A){const k="d:"+A.key,c=wmLSget(k);let raw;
+ if(c&&Date.now()-c.fetchedAt<WM_TTL)raw=c;// localStorage copy (survives reloads; refetched at most hourly)
+ else{const ec=await wmGetLoad(A,"ecmwf"),G=await wmGuarded(A,ec);raw={fetchedAt:Date.now(),nc:G.nc,ec,rot:G.rot,why:G.why,tries:G.tries,status:G.status,run:G.run};wmLSput(k,raw)}
+ const R=wmBuild(A,raw);WM.cache.set(A.key,R);if(WM.cache.size>4)WM.cache.delete(WM.cache.keys().next().value);return R}
+/* exact single point: one request with both NCEP models (2 calls). Rotation check: the point's NCEP direction vs the accepted grid at
+   that point, over its HRRR-window hours; a consistent ~11.5 deg CCW offset in most hours -> refetch (max 2), else note. */
+async function wmPoint(lat,lon){const k=lat.toFixed(4)+","+lon.toFixed(4);WM.pc=WM.pc||new Map();const C=WM.pc.get(k);if(C&&Date.now()-C.fetchedAt<WM_TTL)return C;
+ const u=`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime&forecast_days=7&models=ncep_hrrr_conus,best_match`;
+ let tries=0,j,rot=false,chk=null;
+ for(;;){WM.calls+=2;j=await wmFetchJ(u,15000);chk=wmPointRot(j,lat,lon);if(!chk||!chk.rotated||tries>=WM_RETRY)break;tries++}
+ rot=!!(chk&&chk.rotated);const P=WindData.parseAll(j,null),B=WindData.blend(P,WM_WD);
+ const R={H:B.hours.map(h=>({t:h.t*1000,model:h.model,s:h.s,g:h.g,d:h.d})),rot,tries,chk,fetchedAt:Date.now()};WM.pc.set(k,R);if(WM.pc.size>20)WM.pc.delete(WM.pc.keys().next().value);return R}
+function wmPointRot(j,lat,lon){const R=WM.area;if(!R||R.rot)return null;const P=WindData.parseAll(j,null),o=[0,0],J=[];
+ P.best.t.forEach((t,k)=>{const h=R.H.find(x=>x.t==t*1000);if(!h||h.model=="best")return;const s=P.best.pts[0].s[k],d=P.best.pts[0].d[k];if(s==null||d==null||s<3)return;
+  if(!WindFlow._sampleField(h.field,lat,lon,o))return;J.push(WindData.wrap(d-wmFrom(o[0],o[1])))});
+ if(J.length<6)return{rotated:false,n:J.length};const inb=J.filter(x=>Math.abs(x-WindData.defaults.rotShift)<=WindData.defaults.rotTol).length;
+ return{rotated:inb/J.length>=.6,n:J.length,frac:+(inb/J.length).toFixed(2)}}
+
+const wmModelName=m=>m=="hrrr"?"NOAA HRRR 3 km (high-res US model)":"longer-range model (Open-Meteo best match)";
+function wmSetHour(k,fromStrip){const R=WM.area;if(!R||!R.H.length)return;WM.hi=Math.max(0,Math.min(R.H.length-1,k));const h=R.H[WM.hi];WM.t=h.t;
+ $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off (the forecast server sent a rotated copy; refetching didn\'t fix it)</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)));
+ WM.wf.setField(h.field);WM.wf.start();if(WM.ds&&!fromStrip)WM.ds.setSelected(h.t/1000);if(WM.tap)wmReadout(WM.tap.lat,WM.tap.lng,true)}
 function wmGrid(R,lat,lon,arr){// bilinear on a scalar grid (gusts)
  const A=R.A,fy=(lat-A.lat0)/A.dLat,fx=(lon-A.lon0)/A.dLon;if(!(fx>=0&&fy>=0&&fx<=A.nLon-1&&fy<=A.nLat-1))return NaN;const x0=Math.min(Math.floor(fx),A.nLon-2),y0=Math.min(Math.floor(fy),A.nLat-2),tx=fx-x0,ty=fy-y0,n=A.nLon,i=y0*n+x0;
  return(arr[i]*(1-tx)+arr[i+1]*tx)*(1-ty)+(arr[i+n]*(1-tx)+arr[i+n+1]*tx)*ty}
-async function wmReadout(lat,lon,fetchExact=true){const R=WM.area;if(!R)return;const h=R.H[WM.hi],s=WM.wf.sample(lat,lon),el=$("wmRead");WM.tap={lat,lng:lon};
+const wmTag=m=>m=="hrrr"?"HRRR":"longer-range";
+// tap readout: leads with the EXACT point (loading state until it arrives); the grid value is only a small "approx (grid)" line, or the fallback if the exact fetch fails
+async function wmReadout(lat,lon,again){const R=WM.area;if(!R)return;const h=R.H[WM.hi],s=WM.wf.sample(lat,lon),el=$("wmRead");WM.tap={lat,lng:lon};
  if(WM.tapMk)WM.tapMk.setLatLng([lat,lon]);else WM.tapMk=L.circleMarker([lat,lon],{radius:5,color:"#fff",weight:2,fillOpacity:0}).addTo(WM.map);
- const where=`${lat.toFixed(3)}, ${lon.toFixed(3)}`;
- if(!s){el.innerHTML=`<b>${where}</b> is outside the loaded wind grid. Pan there and the grid reloads.`;return}
- const g=wmGrid(R,lat,lon,h.g),line=(kt,gu,from,tag)=>`<div><b>${Math.round(kt)} kt</b>${isFinite(gu)?`, gusts ${Math.round(gu)} kt`:""} from <b>${wmCard(from)} (${Math.round(from)}°)</b> <span class="mut">${tag}</span></div>`;
- el.dataset.grid=JSON.stringify({kt:+s.kt.toFixed(1),gust:+g.toFixed(1),from:Math.round(s.fromDeg)});
- el.innerHTML=`<div class="mut">${where} · ${wmLabel(h.t)}</div>`+line(s.kt,g,s.fromDeg,"interpolated from the "+WM_N+"×"+WM_N+" grid")+(fetchExact?'<div class="mut" id="wmEx">Fetching the exact point…</div>':el.querySelector("#wmEx")?.outerHTML||"");
- if(!fetchExact){const ex=el.querySelector("#wmEx");if(ex)ex.textContent="(exact value: tap again for this hour)";return}
- const seq=++WM.exactSeq;try{const j=await wmFetchJ(`https://api.open-meteo.com/v1/forecast?latitude=${lat.toFixed(4)}&longitude=${lon.toFixed(4)}${WM_Q}&forecast_days=7`+(h.model=="hrrr"?"&models=ncep_hrrr_conus&forecast_days=3":""),15000);
-  if(seq!=WM.exactSeq)return;const k=j.hourly.time.indexOf(h.t/1000),ex=$("wmEx");if(!ex)return;
-  if(k<0||j.hourly.wind_speed_10m[k]==null){ex.textContent="Exact point: no value for this hour";return}
-  const H=j.hourly;ex.outerHTML=line(H.wind_speed_10m[k],H.wind_gusts_10m[k],H.wind_direction_10m[k],"exact point ("+(h.model=="hrrr"?"HRRR":"best match")+")").replace("<div>",'<div id="wmEx" data-kt="'+H.wind_speed_10m[k]+'" data-from="'+H.wind_direction_10m[k]+'">')}
- catch(e){if(seq==WM.exactSeq&&$("wmEx"))$("wmEx").textContent="Exact point unavailable ("+e.message+"); grid value shown"}}
+ const where=`${lat.toFixed(3)}, ${lon.toFixed(3)} · ${wmLabel(h.t)}`,g=s?wmGrid(R,lat,lon,h.g):NaN,
+  approx=s?`approx (grid): ${Math.round(s.kt)} kt${isFinite(g)?", gust "+Math.round(g):""}, from ${wmCard(s.fromDeg)} ${Math.round(s.fromDeg)}°`:"outside the loaded grid";
+ el.dataset.grid=s?JSON.stringify({kt:+s.kt.toFixed(1),gust:+g.toFixed(1),from:Math.round(s.fromDeg)}):"";
+ const seq=++WM.exactSeq,C=WM.pc&&WM.pc.get(lat.toFixed(4)+","+lon.toFixed(4));
+ if(!(C&&Date.now()-C.at<30*6e4))el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" class="wmLoad">Getting the exact forecast for this point…</div><div class="wmApx">${approx}</div>`;
+ try{const P=await wmPoint(lat,lon);if(seq!=WM.exactSeq)return;const x=P.H.find(q=>q.t==h.t);if(!x)throw new Error("no value for this hour");
+  el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-kt="${x.s[0]}" data-from="${x.d[0]}" data-model="${x.model}"><b>${Math.round(x.s[0])} kt</b> sustained${isFinite(x.g[0])?`, <b>gust ${Math.round(x.g[0])} kt</b>`:""}, from <b>${wmCard(x.d[0])} (${Math.round(x.d[0])}°)</b> <span class="mut">exact point · ${wmTag(x.model)} · fetched ${fmtT(new Date(P.fetchedAt))}${P.rot?" · ⚠️ directions may be off":""}</span></div><div class="wmApx">${approx}</div>`}
+ catch(e){if(seq!=WM.exactSeq)return;el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-fail="1">${s?`<b>≈ ${Math.round(s.kt)} kt</b>${isFinite(g)?`, gust ≈ ${Math.round(g)} kt`:""}, from ${wmCard(s.fromDeg)} (${Math.round(s.fromDeg)}°)`:"No value here"} <span class="mut">APPROXIMATE, from the grid: the exact point didn't load (${esc(e.message)})</span></div>`}}
+// day strip: hours for the spot from its exact point (falls back to the grid cell at the spot)
+async function wmStrip(){if(!WM.ds||!S.loc)return;const{lat,lon}=S.loc,d0=new Date();d0.setHours(0,0,0,0);let H,src;
+ try{H=(await wmPoint(lat,lon)).H.map(x=>({t:x.t/1000,kt:x.s[0],gust:x.g[0],fromDeg:x.d[0],model:x.model}));src="exact"}
+ catch(e){const R=WM.area;if(!R)return;H=R.H.map(x=>{const f=x.field,o=[0,0];WindFlow._sampleField(f,lat,lon,o);return{t:x.t/1000,kt:wmGrid(R,lat,lon,x.s),gust:wmGrid(R,lat,lon,x.g),fromDeg:wmFrom(o[0],o[1]),model:x.model}});src="grid"}
+ WM.stripSrc=src;WM.ds.setHours(H.filter(x=>x.t*1000>=+d0));if(WM.t)WM.ds.setSelected(WM.t/1000)}
 async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng);if(WM.area&&WM.area.A.key==A.key)return;
- // keep the current area while the view centre is still well inside it (refetch only on large pans)
- if(WM.area){const B=WM.area.A;if(Math.abs(c.lat-B.cLat)<B.dl*.25&&Math.abs(c.lng-B.cLon)<B.dn*.25)return}
- const t0=WM.area?WM.area.H[WM.hi]?.t:null;wmMsg("Loading wind…");
+ if(WM.area){const B=WM.area.A,v=WM.map.getBounds(),m=.04;// refetch only when the view leaves the loaded grid (small pans reuse it)
+  if(v.getNorth()<=B.cLat+B.dl*(.5+m)&&v.getSouth()>=B.cLat-B.dl*(.5+m)&&v.getEast()<=B.cLon+B.dn*(.5+m)&&v.getWest()>=B.cLon-B.dn*(.5+m))return}
+ const t0=WM.t;wmMsg("Loading wind…");
  try{const R=await wmLoadArea(A);if(!R.H.length)throw new Error("no wind hours returned");WM.area=R;const now=Math.floor(Date.now()/36e5)*36e5;let k=R.H.findIndex(h=>h.t==(t0??now));if(k<0)k=Math.max(0,R.H.findIndex(h=>h.t>=now));
-  const k0=Math.max(0,R.H.findIndex(h=>h.t>=now));// slider runs from the current hour to the end of the data
-  WM.k0=k0;$("wmT").min=k0;$("wmT").max=R.H.length-1;wmMsg("");wmSetHour(Math.max(k,k0))}
+  wmMsg("");wmSetHour(k);if(!WM.stripDone){WM.stripDone=1;wmStrip()}}
  catch(e){console.warn("wind map:",e.message);wmMsg("Wind data unavailable: "+e.message+".",true)}}
 async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLeaflet()}catch(e){wmMsg("Map unavailable: "+e.message+". The hourly wind list below still works.",true);return}
  const{lat,lon}=S.loc,key=lat+","+lon;
@@ -1111,12 +1444,14 @@ async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLe
   // USGS The National Map imagery (US public domain, no key). CARTO basemaps now need a CARTO-issued key (unkeyed tiles show "API KEY REQUIRED").
   L.tileLayer("https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}",{maxZoom:12,maxNativeZoom:16,className:"wmTiles",attribution:'Imagery: <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map">USGS The National Map</a> · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
   WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>wmEnsureArea());WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
-  $("wmT").oninput=e=>wmSetHour(+e.target.value);$("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}
+  WM.ds=DayStrip.create($("wmDays"),{hours:[],tz:WM_TZ,onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
+  $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}
  WM.map.invalidateSize();
- if(key!=WM.locKey||force){WM.locKey=key;const dl=50/69,dn=dl/Math.cos(lat*Math.PI/180);WM.tap=null;if(WM.tapMk){WM.tapMk.remove();WM.tapMk=null}$("wmRead").innerHTML='<span class="mut">Tap the map for speed, gusts and direction at that point.</span>';
-  WM.map.fitBounds([[lat-dl,lon-dn],[lat+dl,lon+dn]]);if(WM.mk)WM.mk.setLatLng([lat,lon]);else{WM.mk=L.marker([lat,lon],{title:S.loc.name}).addTo(WM.map);WM.mk.on("click",()=>{const q=WM.mk.getLatLng();wmReadout(q.lat,q.lng)})}// tapping the spot marker gives the readout thereWM.mk.bindTooltip(S.loc.name||"Spot");
-  if(force)WM.cache.clear(),WM.area=null;await wmEnsureArea()}
+ if(key!=WM.locKey||force){WM.locKey=key;const dl=50/69,dn=dl/Math.cos(lat*Math.PI/180);WM.tap=null;WM.stripDone=0;if(WM.tapMk){WM.tapMk.remove();WM.tapMk=null}$("wmRead").innerHTML='<span class="mut">Tap the map for speed, gusts and direction at that point.</span>';
+  WM.map.fitBounds([[lat-dl,lon-dn],[lat+dl,lon+dn]]);if(WM.mk)WM.mk.setLatLng([lat,lon]);else{WM.mk=L.marker([lat,lon],{title:S.loc.name}).addTo(WM.map);WM.mk.on("click",()=>{const q=WM.mk.getLatLng();wmReadout(q.lat,q.lng)})}// tapping the spot marker gives the readout there
+  WM.mk.bindTooltip(S.loc.name||"Spot");if(force)WM.cache.clear(),WM.area=null;await wmEnsureArea();if(!WM.stripDone&&WM.area){WM.stripDone=1;wmStrip()}}
  else if(WM.area){WM.wf.start()}}
+
 function wmHide(){if(WM.wf)WM.wf.stop()}
 
 S.buoy={};$("build").textContent="Brinecast "+BUILD;renderLog();renderFavs();renderGo();show(new URLSearchParams(location.search).get("view")||LS.get("view","weather"));

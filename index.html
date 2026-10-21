@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.26 · Oct 20 2026";// bump on every push
+const BUILD="v0.9.27 · Oct 21 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1217,7 +1217,8 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     refetch:true, maxRefetches:2, allowCorrection:false, blendHours:6, blendMode:'none', agreeDeg:3, runLagSec:5400, capture:false, captureKey:'brinecast.rotSamples', captureMax:2, ttlMs:3600e3,
     ecHours:48, ecMinSamples:100, ecLo:-16, ecHi:-8, ecPtMax:-6, ecMinPts:6, ecMinKt:3,
     refShift:-11.5, refTol:3, refTtlMs:9*3600e3, refKey:'brinecast.ecRef', refArea:0.5, refSaveMax:8,   // reference-gap check
-    retryAfterMs:300000, maxRetries:1, backoffMinMs:60000, backoffMaxMs:15*60000 };   // per-load ECMWF check (no baseline needed)
+    retryAfterMs:300000, maxRetries:1, backoffMinMs:60000, backoffMaxMs:15*60000,
+    pairAfterMs:300000, pairTiming:'later', pairBufferMs:5*60000, pairMaxMs:75*60000, pairTrustClean:false, lambertTol:2, lambertLat1:38.5, lambertLon0:-97.5 };   // first-load pair (v0.9.27)   // per-load ECMWF check (no baseline needed)
   var R2D=180/Math.PI;
   function wrap(d){ d=((d%360)+540)%360-180; return d===-180?180:d; }
   function uv(kt,from){ var r=from/R2D; return [-kt*Math.sin(r), -kt*Math.cos(r)]; }          // blow-toward u east, v north
@@ -1313,6 +1314,27 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
       if(fresh(c,now,o) && c.pointMedians.length===e.pointMedians.length && !(c.hash&&e.hash&&c.hash===e.hash) && agrees(c,e,o)){ S.setItem(k, JSON.stringify(e)); delK(S,k+':cand'); return 'promoted'; }
       S.setItem(k+':cand', JSON.stringify(e)); return 'candidate';
     }catch(_){ return false; } }
+  /* First-load pair (v0.9.27). An area with no reference gets ONE quiet second fetch (once per area per refTtl). The second load is
+     compared with the first (stored at key+':pend'): identical hash -> stay unchecked; agree within agreeDeg -> promote reference;
+     second ≈ first − rotation -> second flagged, first kept as candidate; second ≈ first + rotation -> first was rotated, second
+     becomes the candidate. Rotation per point = −sin(lat1)·(lon − lon0) (HRRR Lambert grid, ≈ −11.4° at −79.2) when o.checkLons given. */
+  function expectedRot(lon, o){ o=Object.assign({},DEF,o); return -Math.sin(o.lambertLat1/R2D)*(lon-o.lambertLon0); }
+  function nextRunAt(meta){ var a=meta&&+meta.last_run_availability_time, u=meta&&+meta.update_interval_seconds||3600; return a?(a+u)*1000:null; }
+  // delay for the pair fetch: next HRRR run (meta.json availability + 1 h) + pairBufferMs; 'later' (default) = max(5 min, that), capped at pairMaxMs.
+  // No/old meta (next run already past) -> 5 min.
+  function pairDelay(o, now){ var f=o.pairAfterMs, n=o.meta?nextRunAt(o.meta):(o.nextRunAt||null), d=n!=null&&n>now?n-now+o.pairBufferMs:null, r=f;
+    if(d!=null){ if(o.pairTiming==='nextRun') r=d; else if(o.pairTiming==='sooner') r=Math.min(f,d); else if(o.pairTiming==='later') r=Math.max(f,d); }
+    return Math.min(r, o.pairMaxMs); }
+  function pairCompare(first, ec, hash, o){ var r={outcome:'unresolved', delta:null, down:0, up:0, n:0};
+    if(first.hash&&hash&&first.hash===hash){ r.outcome='identical'; return r; }
+    var dl=[], ex=[]; ec.pointMedians.forEach(function(m,i){ var b=first.pointMedians[i]; if(m!=null&&b!=null){ dl.push(wrap(m-b)); ex.push(o.checkLons&&o.checkLons[i]!=null?expectedRot(o.checkLons[i],o):o.refShift); } });
+    var tol=o.checkLons?o.lambertTol:o.refTol, need=Math.ceil(dl.length*o.ecMinPts/9), exP=med(ex);
+    r.n=dl.length; r.delta=wrap(ec.median-first.median);
+    r.down=dl.filter(function(x,i){return Math.abs(x-ex[i])<=tol;}).length; r.up=dl.filter(function(x,i){return Math.abs(x+ex[i])<=tol;}).length;
+    if(agrees(first,ec,o)) r.outcome='agree';
+    else if(r.down>=need&&Math.abs(r.delta-exP)<=tol+1) r.outcome='secondRotated';
+    else if(r.up>=need&&Math.abs(r.delta+exP)<=tol+1) r.outcome='firstRotated';
+    return r; }
   // content hash of hourly data (ignores generationtime_ms etc.) to spot byte-identical repeat copies
   function dataHash(json){ var A=Array.isArray(json)?json:[json], s=JSON.stringify(A.map(function(p){return p&&p.hourly;})), h=5381; for(var i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(16)+':'+s.length; }
   function nextBackoff(prevMs, o){ o=Object.assign({},DEF,o); return Math.min(o.backoffMaxMs, Math.max(o.backoffMinMs, (prevMs||0)*2)); }
@@ -1364,7 +1386,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
      Caller: show data now; if out.retry, set ONE timer for retryAfterMs and call again with attempt:1, prevHash:out.hash; if out.backoff,
      make no requests for out.backoffMs (pass it back as prevBackoffMs next 429). */
   function decide(P, check, base, o){ o=Object.assign({},DEF,o); var att=o.attempt||0;
-    var out={status:'unchecked', needRefetch:false, corrected:false, directionsSuspect:false, retry:false, retryAfterMs:0, retryCount:att, hash:null, backoff:false, backoffMs:0, det:null, ec:null, diffs:{}, by:null, reason:'', refSaved:false, refDropped:false};
+    var out={status:'unchecked', needRefetch:false, corrected:false, directionsSuspect:false, retry:false, retryAfterMs:0, retryCount:att, hash:null, backoff:false, backoffMs:0, det:null, ec:null, diffs:{}, by:null, reason:'', refSaved:false, refDropped:false, pairFetch:false, pairAfterMs:0, pair:null};
     if(o.httpStatus===429){ out.status='error'; out.backoff=true; out.backoffMs=nextBackoff(o.prevBackoffMs,o); out.reason='429 rate limited: no retry, back off '+out.backoffMs/1000+' s'; return out; }
     var d=checkDiffs(P,check), r; out.diffs=d; out.hash=o.raw?dataHash(o.raw.ncep):null;
     if(base && typeof base.offer==='function') r=base.offer(d, o.runId); else r=base?{status:'checked', det:detect(d,base,o)}:{status:'unchecked', det:null};
@@ -1375,6 +1397,18 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     // fixed-band pass alone = low confidence -> unchecked (taps won't trust the grid); reference pass or baseline -> checked
     var st=(r.status==='checked'||ecHigh)?'checked':'unchecked'; out.status=st; out.det=det; out.ec=ec; out.confidence=ec.confidence||null;
     P.directionsSuspect=false; P.checked=st==='checked'; P.ecmwfOk=ecHigh&&!ec.rotated;
+    var kA=c?refAreaKey(c.lat,c.lon,o):null;
+    if(o.pair && S && kA){ var first=getJ(S,kA+':pend'); delK(S,kA+':pend'); out.pair={outcome:'no first load', first:null};
+      if(first&&fresh(first,now,o)&&ec.checked){ var pc=pairCompare(first,ec,out.hash,o); out.pair=pc; out.retry=false; out.confidence='pair';
+        var cur={savedAt:now, runId:o.runId!=null?o.runId:null, hash:out.hash, lat:+c.lat.toFixed(2), lon:+c.lon.toFixed(2), median:ec.median, pointMedians:ec.pointMedians, n:ec.n};
+        if(pc.outcome==='agree'&&!ec.rotated&&Math.abs(ec.median)<=o.refSaveMax){ S.setItem(kA,JSON.stringify(cur)); delK(S,kA+':cand'); out.refSaved='promoted'; out.status='checked'; P.checked=true; P.ecmwfOk=true; P.directionsSuspect=false; out.directionsSuspect=false; out.reason='pair agrees (Δ '+pc.delta.toFixed(1)+'°): reference promoted'; return out; }
+        if(pc.outcome==='secondRotated'){ S.setItem(kA+':cand',JSON.stringify(first)); out.status='checked'; P.checked=true; P.ecmwfOk=false; P.directionsSuspect=true; out.directionsSuspect=true; out.reason='pair: this copy is '+pc.delta.toFixed(1)+'° vs the first load: flagged, first kept as candidate'; return out; }
+        if(pc.outcome==='firstRotated'){ S.setItem(kA+':cand',JSON.stringify(cur)); out.firstWasRotated=true; var tr=o.pairTrustClean; out.status=tr?'checked':'unchecked'; P.checked=!!tr; P.ecmwfOk=!!tr; P.directionsSuspect=false; out.directionsSuspect=false; out.refSaved='candidate'; out.reason='pair: first load was rotated (this one +'+pc.delta.toFixed(1)+'°): this copy kept as candidate'; return out; }
+        out.status='unchecked'; P.checked=false; P.ecmwfOk=false; P.directionsSuspect=!!ec.rotated; out.directionsSuspect=!!ec.rotated;
+        out.reason=pc.outcome==='identical'?'pair: identical copy, still not checked':'pair unresolved (Δ '+(pc.delta!=null?pc.delta.toFixed(1):'?')+'°), still not checked'; return out; } }
+    if(!o.pair && !ref && S && kA && ec.checked && (o.attempt||0)===0 && o.trigger!=='pan' && o.pairFetch!==false){ var pd=getJ(S,kA+':pairAt');
+      if(!fresh(pd,now,o)){ S.setItem(kA+':pairAt',JSON.stringify({savedAt:now})); S.setItem(kA+':pend',JSON.stringify({savedAt:now, hash:out.hash, median:ec.median, pointMedians:ec.pointMedians}));
+        out.pairFetch=true; out.pairAfterMs=pairDelay(o,now); } }
     if(ec.refBad){ if(c&&S) dropRef(S,c.lat,c.lon,o); out.refDropped=true; out.status='unchecked'; P.checked=false; P.ecmwfOk=false;
       if(c&&S) out.refSaved=saveRef(S,c.lat,c.lon,Object.assign({},ec,{refBad:false,confidence:'low'}),now,Object.assign({},o,{hash:out.hash})); out.reason=ec.reason+'; reference dropped, this load starts a new candidate'; return out; }
     if(!det.rotated&&!ec.rotated){ if(c&&S&&ec.checked) out.refSaved=saveRef(S,c.lat,c.lon,ec,now,Object.assign({},o,{hash:out.hash})); out.reason=ec.reason||det.reason; return out; }
@@ -1386,6 +1420,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     if(o.trigger==='pan') out.reason='flagged on a pan: warning shown, no retry';
     else if(same) out.reason='retry returned an identical copy: warning kept, no more retries';
     else if(att>=o.maxRetries) out.reason='still rotated after the delayed retry: warning kept';
+    else if(out.pairFetch) out.reason='rotated (fixed band): warning shown now; the first-load pair fetch in '+Math.round(out.pairAfterMs/60000)+' min doubles as the retry';
     else { out.retry=true; out.retryAfterMs=o.retryAfterMs; out.reason='rotated: warning shown now, one quiet retry in '+o.retryAfterMs/60000+' min'; }
     return out; }
 
@@ -1418,7 +1453,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   function cacheGet(store,key,o){ o=Object.assign({},DEF,o); var e=store.get(key); return e && Date.now()-e.fetchedAt<o.ttlMs ? e : null; }
 
   var api={defaults:DEF, wrap:wrap, uv:uv, spdDir:spdDir, grid:grid, buildRequests:buildRequests, parse:parse, parseAll:parseAll,
-    checkDiffs:checkDiffs, ecmwfCheck:ecmwfCheck, loadRef:loadRef, saveRef:saveRef, dropRef:dropRef, refAreaKey:refAreaKey, dataHash:dataHash, nextBackoff:nextBackoff, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
+    checkDiffs:checkDiffs, ecmwfCheck:ecmwfCheck, loadRef:loadRef, saveRef:saveRef, dropRef:dropRef, expectedRot:expectedRot, nextRunAt:nextRunAt, pairDelay:function(o,now){return pairDelay(Object.assign({},DEF,o),now);}, pairCompare:pairCompare, refAreaKey:refAreaKey, dataHash:dataHash, nextBackoff:nextBackoff, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
     cacheKey:cacheKey, cacheGet:cacheGet, cachePut:cachePut};
   if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.WindData=api;
 })(this);
@@ -1505,7 +1540,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
 // ===== Wind map (v0.9.24): Leaflet map + Open-Meteo grid + WindFlow moving lines + DayStrip =====
 // Times: Open-Meteo returns unixtime (UTC seconds); every label is formatted in America/New_York via Intl, so EDT->EST (Nov 1) is handled.
 const WM={map:null,wf:null,ds:null,mk:null,area:null,cache:new Map(),hi:0,loadP:null,locKey:"",exactSeq:0,spot:null};
-const WM_N=11;// 9x9 grid over ~100 mi (WindData defaults)
+const WM_N=11;// 11×11 grid (WM_GRID)
 const WM_TZ="America/New_York",wmFmt=new Intl.DateTimeFormat("en-US",{timeZone:WM_TZ,weekday:"short",hour:"numeric",timeZoneName:"short"});
 function wmLabel(ms){const p=Object.fromEntries(wmFmt.formatToParts(new Date(ms)).map(x=>[x.type,x.value]));return `${p.weekday} ${p.hour} ${p.dayPeriod} ${p.timeZoneName}`}
 const WM_CARD=["N","NNE","NE","ENE","E","ESE","SE","SSE","S","SSW","SW","WSW","W","WNW","NW","NNW"],wmCard=d=>WM_CARD[Math.round(((d%360)+360)%360/22.5)%16];
@@ -1521,36 +1556,42 @@ async function wmFetchJ(u,ms=20000){const ac=new AbortController(),t=setTimeout(
 function wmBackoffCheck(){if(WM.backoffUntil&&Date.now()<WM.backoffUntil){const e=new Error("Open-Meteo rate limit: waiting "+Math.ceil((WM.backoffUntil-Date.now())/6e4)+" min before trying again");e.backoff=true;throw e}}
 function wmBackoff(out){if(out&&out.backoff){WM.lastGuard=Object.assign({},out);WM.boMs=out.backoffMs;WM.backoffUntil=Date.now()+out.backoffMs;WM.boCount=(WM.boCount||0)+1;console.warn("wind:",out.reason)}}
 const WM_Q="&hourly=wind_speed_10m,wind_direction_10m,wind_gusts_10m&wind_speed_unit=kn&timeformat=unixtime";
-/* Data layer (v0.9.24) on Coder's WindData (winddata.js): 9x9 grid over ~100 mi in ONE request (models=ncep_hrrr_conus,best_match)
-   + ECMWF at 9 check points; HRRR->best_match blended over 6 h. Rotation guard (no data correction): the NCEP-ECMWF offset at the check
-   points is compared with the last accepted load for the same hours; a consistent ~11.5 deg CCW jump means a bad load -> refetch (max 2).
-   Still rotated -> shown with a "directions may be off" note. Cached 1 h per area in localStorage, with the fetch time shown.
-   Open-Meteo weight (pricing page): grid 81 pts x 2 models = 162, ECMWF 9 -> 171 per area load; +162 per refetch (max 2); 2 per exact point. */
-const WM_LS="wd2:",WM_TTL=3600e3,WM_RETRY=2;
+/* Data layer (v0.9.27) on Coder's WindData (winddata.js) + TapCheck (tapcheck.js): 11×11 grid (~17.5 mi spacing) in ONE request
+   (models=ncep_hrrr_conus,best_match) + ECMWF at 9 check points (rows/cols 1,5,9). No blend: HRRR, then best_match after the handoff.
+   Rotation guard (never corrects data): WindData.decide per load (ECMWF gap vs the stored reference gap per area). A new area gets one
+   quiet "first-load pair" fetch later (pairAfterMs, ≤75 min); a flagged load is shown at once with "directions may be off" and the pair
+   doubles as its one retry. No retry on pans; 429 -> backoff. Cached 1 h per area in localStorage, fetch time shown.
+   Open-Meteo weight: grid 121 pts × 2 models = 242 + ECMWF 9 = 251 per area load; +251 for the pair; 2 per exact point. */
+const WM_LS="wd2:",WM_TTL=3600e3;
 WM.calls=0;// weighted Open-Meteo calls made by the wind map this session (for tests / budget)
+const WM_CHK=[1,5,9];// ECMWF check rows/cols for 11×11: near every edge and the centre
 const WM_SPAN=175,WM_GRID={nGrid:11,spanMi:WM_SPAN};// 11×11 at ~17.5 mi spacing: the ~120×135 mi phone view at zoom 8 plus a margin on each side
-function wmAreaFor(lat,lon){const q=x=>Math.round(x*20)/20,la=q(lat),lo=q(lon),g=WindData.grid(la,lo,WM_GRID),dl=WM_SPAN/69,dn=dl/Math.cos(la*Math.PI/180);
+function wmAreaFor(lat,lon){const q=x=>Math.round(x*20)/20,la=q(lat),lo=q(lon),g=WindData.grid(la,lo,WM_GRID);g.check=WM_CHK.flatMap(i=>WM_CHK.map(j=>i*g.n+j));const dl=WM_SPAN/69,dn=dl/Math.cos(la*Math.PI/180);
  return{key:la.toFixed(2)+","+lo.toFixed(2),g,lat0:g.lat0,lon0:g.lon0,dLat:g.dLat,dLon:g.dLon,nLat:g.n,nLon:g.n,cLat:la,cLon:lo,dl,dn}}
 const wmLSget=k=>{try{return JSON.parse(localStorage.getItem(WM_LS+k))}catch(e){return null}};
 function wmLSput(k,v){const s=JSON.stringify(v);for(let tries=0;tries<3;tries++){try{localStorage.setItem(WM_LS+k,s);return}catch(e){// full: drop the oldest wind entries
   const ks=Object.keys(localStorage).filter(x=>x.startsWith(WM_LS+"d:")).sort((a,b)=>(wmLSget(a.slice(WM_LS.length))?.fetchedAt||0)-(wmLSget(b.slice(WM_LS.length))?.fetchedAt||0));if(!ks.length)return;localStorage.removeItem(ks[0])}}}
-async function wmGetLoad(A,which){wmBackoffCheck();const Q=WindData.buildRequests(A.cLat,A.cLon,WM_GRID);const u=which=="ncep"?Q.ncep:Q.ecmwf;WM.calls+=which=="ncep"?Q.weight.ncep:Q.weight.ecmwf;return wmFetchJ(u,25000)}
+async function wmGetLoad(A,which){wmBackoffCheck();const Q=WindData.buildRequests(A.cLat,A.cLon,WM_GRID);let u=Q.ncep;
+ if(which!="ncep"){const U=new URL(Q.ecmwf);U.searchParams.set("latitude",A.g.check.map(k=>A.g.lat[k]).join(","));U.searchParams.set("longitude",A.g.check.map(k=>A.g.lon[k]).join(","));u=U.toString().replace(/%2C/g,",")}// ECMWF at the app's check points (A.g.check)
+ WM.calls+=which=="ncep"?Q.weight.ncep:Q.weight.ecmwf;return wmFetchJ(u,25000)}
 // forecast run id: HRRR's last_run_initialisation_time from Open-Meteo's model metadata (fetch-time guess if that fails)
 async function wmRunId(){let m=null;try{m=await wmFetchJ("https://api.open-meteo.com/data/ncep_hrrr_conus/static/meta.json",8000)}catch(e){console.warn("HRRR meta.json:",e.message)}
- return{id:WindData.runIdFromMeta(m,Date.now()),src:m&&m.last_run_initialisation_time?"meta":"guess"}}
+ return{id:WindData.runIdFromMeta(m,Date.now()),src:m&&m.last_run_initialisation_time?"meta":"guess",meta:m}}
 const WM_WD={blendMode:"none",allowCorrection:false,capture:true,captureMax:2};
 // guard (v0.9.26): ONE grid fetch per load, checked by WindData.decide (ECMWF check points + stored reference gap per area).
 // Flagged -> shown right away with "directions may be off"; at most one quiet retry after retryAfterMs (never on a pan, never instantly).
 // 429 -> no retry, back off backoffMs. A new area with no reference yet shows "unchecked".
-async function wmGuarded(A,ec,trigger,attempt,prevHash){const run=await wmRunId();let nc;
+async function wmGuarded(A,ec,trigger,attempt,prevHash,pair){const run=await wmRunId();let nc;
  try{nc=await wmGetLoad(A,"ncep")}catch(e){if(e.status==429){const P0={hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null};wmBackoff(WindData.decide(P0,A.g.check,null,{trigger,attempt,prevHash,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}))}throw e}
- const P=WindData.parseAll(nc,ec),r=WindData.decide(P,A.g.check,null,Object.assign({},WM_WD,WM_GRID,{trigger,attempt:attempt||0,prevHash:prevHash||null,raw:{ncep:nc,ecmwf:ec},storage:localStorage,center:{lat:A.cLat,lon:A.cLon},runId:run.id}));
- WM.lastGuard=Object.assign({},r,{trigger,attempt:attempt||0,ecmwfOk:!!P.ecmwfOk,suspect:r.directionsSuspect,run,area:A.key,reason:r.reason||(r.ec&&r.ec.reason)});// test hook: the decide() output
- return{nc,rot:!!r.directionsSuspect,status:r.status,ecmwfOk:!!P.ecmwfOk,run,why:r.reason||"",retry:!!r.retry,retryAfterMs:r.retryAfterMs,hash:r.hash,tries:attempt||0}}
-function wmScheduleRetry(A,G){if(!G.retry)return;WM.retryT=WM.retryT||new Map();if(WM.retryT.has(A.key))return;
- WM.retryT.set(A.key,setTimeout(async()=>{WM.retryT.delete(A.key);try{const ec=await wmGetLoad(A,"ecmwf"),G2=await wmGuarded(A,ec,"load",1,G.hash);
+ const P=WindData.parseAll(nc,ec),r=WindData.decide(P,A.g.check,null,Object.assign({},WM_WD,WM_GRID,{trigger,attempt:attempt||0,prevHash:prevHash||null,raw:{ncep:nc,ecmwf:ec},storage:localStorage,center:{lat:A.cLat,lon:A.cLon},runId:run.id,meta:run.meta,checkLons:A.g.check.map(k=>A.g.lon[k]),pairTiming:"later",pairMaxMs:75*6e4,pairTrustClean:false,pair:!!pair}));
+ WM.lastGuard=Object.assign({},r,{trigger,attempt:attempt||0,ecmwfOk:!!P.ecmwfOk,suspect:r.directionsSuspect,run:{id:run.id,src:run.src},area:A.key,pairPending:!!r.pairFetch,pairAfterMs:r.pairAfterMs||0,pairResult:r.pair||null,reason:r.reason||(r.ec&&r.ec.reason)});// test hook: the decide() output
+ return{nc,rot:!!r.directionsSuspect,status:r.status,ecmwfOk:!!P.ecmwfOk,run,why:r.reason||"",retry:!!r.retry,retryAfterMs:r.retryAfterMs,pairFetch:!!r.pairFetch,pairAfterMs:r.pairAfterMs||0,hash:r.hash,tries:attempt||0}}
+// follow-up fetch for a load: the first-load pair (WM.pairT) or, if no pair, one delayed retry (WM.retryT). Never both; one of each at most.
+function wmClearTimers(){if(WM.retryT){clearTimeout(WM.retryT.t);WM.retryT=null}if(WM.pairT){clearTimeout(WM.pairT.t);WM.pairT=null}if(WM.tapRetryT){clearTimeout(WM.tapRetryT);WM.tapRetryT=null}}
+function wmScheduleFollow(A,G){const pair=G.pairFetch,ms=pair?G.pairAfterMs:G.retry?G.retryAfterMs:0;if(!ms)return;const slot=pair?"pairT":"retryT";if(WM[slot])clearTimeout(WM[slot].t);
+ WM[slot]={key:A.key,at:Date.now()+ms,t:setTimeout(async()=>{WM[slot]=null;try{const ec=await wmGetLoad(A,"ecmwf"),G2=await wmGuarded(A,ec,"load",1,G.hash,pair);
   const raw={fetchedAt:Date.now(),nc:G2.nc,ec,rot:G2.rot,why:G2.why,tries:1,status:G2.status,ecmwfOk:G2.ecmwfOk,run:G2.run};wmLSput("d:"+A.key,raw);const R=wmBuild(A,raw);WM.cache.set(A.key,R);
-  if(WM.area&&WM.area.A.key==A.key){WM.area=R;wmSetHour(WM.hi)}}catch(e){if(e.status==429)wmBackoff(WindData.decide({hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null},A.g.check,null,{trigger:"load",attempt:1,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}));console.warn("wind retry:",e.message)}},G.retryAfterMs))}
+  if(WM.area&&WM.area.A.key==A.key){WM.area=R;wmSetHour(WM.hi)}}catch(e){if(e.status==429)wmBackoff(WindData.decide({hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null},A.g.check,null,{trigger:"load",attempt:1,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}));console.warn("wind follow-up:",e.message)}},ms)}}
 function wmLoadArea(A,trigger){WM.inf=WM.inf||new Map();const C=WM.cache.get(A.key);if(C&&Date.now()-C.fetchedAt<WM_TTL)return Promise.resolve(C);if(WM.inf.has(A.key))return WM.inf.get(A.key);// one request in flight per area
  const P=wmLoadArea2(A,trigger).finally(()=>WM.inf.delete(A.key));WM.inf.set(A.key,P);return P}
 function wmBuild(A,raw){const P=WindData.parseAll(raw.nc,raw.ec),B=WindData.blend(P,WM_WD);
@@ -1559,10 +1600,10 @@ function wmBuild(A,raw){const P=WindData.parseAll(raw.nc,raw.ec),B=WindData.blen
 async function wmLoadArea2(A,trigger){const k="d:"+A.key,c=wmLSget(k);let raw;
  if(c&&Date.now()-c.fetchedAt<WM_TTL)raw=c;// localStorage copy (survives reloads; refetched at most hourly)
  else{let ec;try{ec=await wmGetLoad(A,"ecmwf")}catch(e){if(e.status==429)wmBackoff(WindData.decide({hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null},A.g.check,null,{trigger,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}));throw e}
-  const G=await wmGuarded(A,ec,trigger||"load",0,null);raw={fetchedAt:Date.now(),nc:G.nc,ec,rot:G.rot,why:G.why,tries:0,status:G.status,ecmwfOk:G.ecmwfOk,run:G.run};wmLSput(k,raw);if(trigger!="pan")wmScheduleRetry(A,G)}
+  const G=await wmGuarded(A,ec,trigger||"load",0,null);raw={fetchedAt:Date.now(),nc:G.nc,ec,rot:G.rot,why:G.why,tries:0,status:G.status,ecmwfOk:G.ecmwfOk,run:G.run};wmLSput(k,raw);if(trigger!="pan")wmScheduleFollow(A,G)}
  const R=wmBuild(A,raw);WM.cache.set(A.key,R);if(WM.cache.size>4)WM.cache.delete(WM.cache.keys().next().value);return R}
-/* exact single point: one request with both NCEP models (2 calls). Rotation check: the point's NCEP direction vs the accepted grid at
-   that point, over its HRRR-window hours; a consistent ~11.5 deg CCW offset in most hours -> refetch (max 2), else note. */
+/* exact single point: one request with both NCEP models (2 calls), checked with TapCheck.checkTap against the checked grid.
+   Flagged -> "directions may be off" now plus one quiet retry (WM.tapRetryT); grid not checked yet -> "directions not yet checked". */
 function wmPoint(lat,lon){const k=lat.toFixed(4)+","+lon.toFixed(4);WM.pc=WM.pc||new Map();WM.pin=WM.pin||new Map();const C=WM.pc.get(k);if(C&&Date.now()-C.fetchedAt<WM_TTL)return Promise.resolve(C);
  if(WM.pin.has(k))return WM.pin.get(k);// the spot is fetched once even when the strip and the marker ask together
  const P=wmPoint2(lat,lon,k).finally(()=>WM.pin.delete(k));WM.pin.set(k,P);return P}
@@ -1574,27 +1615,27 @@ async function wmPoint2(lat,lon,k,attempt,prevHash){wmBackoffCheck();const u=`ht
  const A=WM.area,h=A&&A.H[WM.hi],chk=A?TapCheck.checkTap(j,A.G,{t:h?h.t/1000:Math.floor(Date.now()/36e5)*3600,lat,lon,attempt:attempt||0,prevHash:prevHash||null}):null;WM.lastTap=chk;// test hook: the checkTap result
  const P=WindData.parseAll(j,null),B=WindData.blend(P,WM_WD);
  const R={H:B.hours.map(h=>({t:h.t*1000,model:h.model,s:h.s,g:h.g,d:h.d})),rot:!!(chk&&chk.directionsSuspect),tries:attempt||0,chk,fetchedAt:Date.now()};WM.pc.set(k,R);if(WM.pc.size>20)WM.pc.delete(WM.pc.keys().next().value);
- if(chk&&chk.retry)setTimeout(async()=>{try{await wmPoint2(lat,lon,k,1,chk.hash);if(WM.tap&&WM.tap.lat.toFixed(4)+","+WM.tap.lng.toFixed(4)==k)wmReadout(WM.tap.lat,WM.tap.lng,true)}catch(e){console.warn("tap retry:",e.message)}},chk.retryAfterMs);// one quiet retry
+ if(chk&&chk.retry)WM.tapRetryT=setTimeout(async()=>{WM.tapRetryT=null;try{await wmPoint2(lat,lon,k,1,chk.hash);if(WM.tap&&WM.tap.lat.toFixed(4)+","+WM.tap.lng.toFixed(4)==k)wmReadout(WM.tap.lat,WM.tap.lng,true)}catch(e){console.warn("tap retry:",e.message)}},chk.retryAfterMs);// one quiet retry
  return R}
 
 const wmModelName=m=>m=="hrrr"?"NOAA HRRR 3 km (high-res US model)":"longer-range model (Open-Meteo best match)";
 function wmSetHour(k,fromStrip){const R=WM.area;if(!R||!R.H.length)return;WM.hi=Math.max(0,Math.min(R.H.length-1,k));const h=R.H[WM.hi];WM.t=h.t;
- $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(!h.rot&&R.status!="checked"?'<br><span class="mut" title="'+esc(R.guard||'')+'">Directions not yet checked (no cross-check reference for this area yet)</span>':'')+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off (the forecast server sent a rotated copy; refetching didn\'t fix it)</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)))+" ET";
+ $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(!h.rot&&R.status!="checked"?'<br><span class="mut" title="'+esc(R.guard||'')+'">Directions not yet checked (no cross-check reference for this area yet)</span>':'')+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off (the forecast server sent a rotated copy; it will be checked again quietly)</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)))+" ET";
  WM.wf.setField(h.field);WM.wf.start();if(WM.ds&&!fromStrip)WM.ds.setSelected(h.t/1000);if(WM.tap)wmReadout(WM.tap.lat,WM.tap.lng,true)}
 function wmGrid(R,lat,lon,arr){// bilinear on a scalar grid (gusts)
  const A=R.A,fy=(lat-A.lat0)/A.dLat,fx=(lon-A.lon0)/A.dLon;if(!(fx>=0&&fy>=0&&fx<=A.nLon-1&&fy<=A.nLat-1))return NaN;const x0=Math.min(Math.floor(fx),A.nLon-2),y0=Math.min(Math.floor(fy),A.nLat-2),tx=fx-x0,ty=fy-y0,n=A.nLon,i=y0*n+x0;
  return(arr[i]*(1-tx)+arr[i+1]*tx)*(1-ty)+(arr[i+n]*(1-tx)+arr[i+n+1]*tx)*ty}
 const wmTag=m=>m=="hrrr"?"HRRR":"longer-range";
 // tap readout: leads with the EXACT point (loading state until it arrives); the grid value is only a small "approx (grid)" line, or the fallback if the exact fetch fails
-async function wmReadout(lat,lon,again){const R=WM.area;if(!R)return;const h=R.H[WM.hi],s=WM.wf.sample(lat,lon),el=$("wmRead");WM.tap={lat,lng:lon};
+async function wmReadout(lat,lon,again){if(WM.tapRetryT){clearTimeout(WM.tapRetryT);WM.tapRetryT=null}const R=WM.area;if(!R)return;const h=R.H[WM.hi],s=WM.wf.sample(lat,lon),el=$("wmRead");WM.tap={lat,lng:lon};
  if(WM.tapMk)WM.tapMk.setLatLng([lat,lon]);else WM.tapMk=L.circleMarker([lat,lon],{radius:5,color:"#fff",weight:2,fillOpacity:0}).addTo(WM.map);
  const where=`${lat.toFixed(3)}, ${lon.toFixed(3)} · ${wmLabel(h.t)}`,g=s?wmGrid(R,lat,lon,h.g):NaN,
   approx=s?`approx (grid): ${Math.round(s.kt)} kt${isFinite(g)?", gust "+Math.round(g):""}, from ${wmCard(s.fromDeg)} ${Math.round(s.fromDeg)}°`:"outside the loaded grid";
  el.dataset.grid=s?JSON.stringify({kt:+s.kt.toFixed(1),gust:+g.toFixed(1),from:Math.round(s.fromDeg)}):"";
  const seq=++WM.exactSeq,C=WM.pc&&WM.pc.get(lat.toFixed(4)+","+lon.toFixed(4));
- if(!(C&&Date.now()-C.at<30*6e4))el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" class="wmLoad">Getting the exact forecast for this point…</div><div class="wmApx">${approx}</div>`;
+ if(!(C&&Date.now()-C.fetchedAt<30*6e4))el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" class="wmLoad">Getting the exact forecast for this point…</div><div class="wmApx">${approx}</div>`;
  try{const P=await wmPoint(lat,lon);if(seq!=WM.exactSeq)return;const x=P.H.find(q=>q.t==h.t);if(!x)throw new Error("no value for this hour");
-  el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-kt="${x.s[0]}" data-from="${x.d[0]}" data-model="${x.model}"><b>${Math.round(x.s[0])} kt</b> sustained${isFinite(x.g[0])?`, <b>gust ${Math.round(x.g[0])} kt</b>`:""}, from <b>${wmCard(x.d[0])} (${Math.round(x.d[0])}°)</b> <span class="mut">exact point · ${wmTag(x.model)} · fetched ${fmtT(new Date(P.fetchedAt))} ET${P.rot?" · ⚠️ directions may be off":""}</span></div><div class="wmApx">${approx}</div>`}
+  el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-kt="${x.s[0]}" data-from="${x.d[0]}" data-model="${x.model}"><b>${Math.round(x.s[0])} kt</b> sustained${isFinite(x.g[0])?`, <b>gust ${Math.round(x.g[0])} kt</b>`:""}, from <b>${wmCard(x.d[0])} (${Math.round(x.d[0])}°)</b> <span class="mut">exact point · ${wmTag(x.model)} · fetched ${fmtT(new Date(P.fetchedAt))} ET${P.rot?" · ⚠️ directions may be off":P.chk&&P.chk.status==="unchecked"?" · directions not yet checked":""}</span></div><div class="wmApx">${approx}</div>`}
  catch(e){if(seq!=WM.exactSeq)return;el.innerHTML=`<div class="mut">${where}</div><div id="wmEx" data-fail="1">${s?`<b>≈ ${Math.round(s.kt)} kt</b>${isFinite(g)?`, gust ≈ ${Math.round(g)} kt`:""}, from ${wmCard(s.fromDeg)} (${Math.round(s.fromDeg)}°)`:"No value here"} <span class="mut">APPROXIMATE, from the grid: the exact point didn't load (${esc(e.message)})</span></div>`}}
 // day strip: hours for the spot from its exact point (falls back to the grid cell at the spot)
 async function wmStrip(){if(!WM.ds||!S.loc)return;const{lat,lon}=S.loc,d0=new Date();d0.setHours(0,0,0,0);let H,src;
@@ -1604,7 +1645,7 @@ async function wmStrip(){if(!WM.ds||!S.loc)return;const{lat,lon}=S.loc,d0=new Da
 async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng);if(WM.area&&WM.area.A.key==A.key)return;
  if(WM.area){const B=WM.area.A,v=WM.map.getBounds(),m=.04;// refetch only when the view leaves the loaded grid (small pans reuse it)
   if(v.getNorth()<=B.cLat+B.dl*(.5+m)&&v.getSouth()>=B.cLat-B.dl*(.5+m)&&v.getEast()<=B.cLon+B.dn*(.5+m)&&v.getWest()>=B.cLon-B.dn*(.5+m))return}
- const t0=WM.t,trig=WM.area?"pan":"load";wmMsg("Loading wind…");
+ const t0=WM.t,trig=WM.area?"pan":"load";wmClearTimers();wmMsg("Loading wind…");// a new area cancels the old area's retry/pair/tap timers
  try{const R=await wmLoadArea(A,trig);if(!R.H.length)throw new Error("no wind hours returned");WM.area=R;const now=Math.floor(Date.now()/36e5)*36e5;let k=R.H.findIndex(h=>h.t==(t0??now));if(k<0)k=Math.max(0,R.H.findIndex(h=>h.t>=now));
   wmMsg("");wmSetHour(k);if(!WM.stripDone){WM.stripDone=1;wmStrip()}}
  catch(e){console.warn("wind map:",e.message);wmMsg("Wind data unavailable: "+e.message+".",true)}}

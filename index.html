@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.28 · Oct 21 2026";// bump on every push
+const BUILD="v0.9.29 · Nov 10 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1552,6 +1552,66 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.TapCheck=api;
 })(this);
 
+/* Continuous forecast timeline. Drop-in DayStrip API; all selection still goes through wmSetHour.
+   The old DayStrip is left unused above to keep the protected lines 1–1218 byte-identical. */
+const WindTimeline=(()=>{
+ const CSS=`#wmDays{padding:0;margin:4px -4px 6px}.wt-root{color:#e8eef5;font:12px/1.25 system-ui,sans-serif;min-width:0;overflow:hidden}
+ .wt-controls{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:2px;align-items:start}.wt-track{height:108px;width:100%;min-width:0;position:relative;outline:none;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer}
+ .wt-track:focus-visible{box-shadow:inset 0 0 0 2px #5aa9e6;border-radius:8px}.wt-rail,.wt-fill{position:absolute;left:0;top:56px;height:8px;border-radius:4px;background:#31516d;pointer-events:none}.wt-rail{width:100%}.wt-fill{background:#5aa9e6}
+ .wt-tick{position:absolute;top:66px;height:4px;border-left:1px solid #7a92a8;pointer-events:none}.wt-major{top:53px;height:28px;border-left:2px solid #c1d3e4}
+ .wt-day{position:absolute;top:85px;white-space:nowrap;transform:translateX(-50%);pointer-events:none;font-size:12px;font-weight:650}
+ .wt-thumb{position:absolute;top:38px;width:44px;height:44px;transform:translateX(-50%);touch-action:none;cursor:ew-resize;z-index:3}.wt-dot{position:absolute;top:12px;width:20px;height:20px;transform:translateX(-50%);box-sizing:border-box;border:3px solid #fff;border-radius:50%;background:#5aa9e6;box-shadow:0 1px 5px #0009;pointer-events:none}
+ .wt-tip{position:absolute;top:5px;transform:translateX(-50%);padding:4px 6px;background:#1f3550;border:1px solid #42617e;border-radius:6px;white-space:nowrap;font-weight:650;pointer-events:none;z-index:4}
+ .wt-now{position:absolute;top:35px;height:34px;border-left:2px solid #f2a33a;pointer-events:none;z-index:2}.wt-now span{position:absolute;top:36px;left:-1px;transform:translateX(-50%);font-size:10px;font-weight:700;color:#f2a33a}
+ .wt-step{width:44px;height:44px;min-width:44px;margin-top:38px;padding:0;background:transparent;color:#c1d3e4;border:1px solid #31516d;border-radius:8px;font-size:15px;position:relative;z-index:5}.wt-step:disabled{opacity:.28;cursor:default}.wt-step:focus-visible{outline:2px solid #5aa9e6;outline-offset:-2px}
+ .wt-help{padding:2px 8px 6px;color:#a8bbce;font-size:10px;text-align:center}.wt-drag .wt-dot{background:#92d5ff;box-shadow:0 0 0 5px #5aa9e633}`;
+ function create(container,opts={}){
+  if(!document.getElementById('wind-timeline-css')){const s=document.createElement('style');s.id='wind-timeline-css';s.textContent=CSS;document.head.appendChild(s)}
+  const tz=opts.tz||'America/New_York',dayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',day:'numeric'}),
+   weekFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short'}),hourFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23'}),
+   timeFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',timeZoneName:'short'});
+  const el=document.createElement('div');el.className='wt-root';
+  el.innerHTML='<div class="wt-controls"><button class="wt-step wt-prev" aria-label="Previous hour" type="button" disabled>◀</button><div class="wt-track" role="slider" tabindex="0" aria-label="Wind forecast time" aria-orientation="horizontal" aria-disabled="true"><div class="wt-rail"></div><div class="wt-fill"></div><div class="wt-ticks" aria-hidden="true"></div><div class="wt-now" hidden><span>now</span></div><div class="wt-thumb" aria-hidden="true"><i class="wt-dot"></i></div><div class="wt-tip" aria-hidden="true">Loading forecast…</div></div><button class="wt-step wt-next" aria-label="Next hour" type="button" disabled>▶</button></div><div class="wt-help">Whole forecast · ◀ ▶ / arrow keys: 1 hour · Eastern time</div>';
+  container.replaceChildren(el);
+  const track=el.querySelector('.wt-track'),fill=el.querySelector('.wt-fill'),ticks=el.querySelector('.wt-ticks'),thumb=el.querySelector('.wt-thumb'),dot=el.querySelector('.wt-dot'),tip=el.querySelector('.wt-tip'),now=el.querySelector('.wt-now'),prev=el.querySelector('.wt-prev'),next=el.querySelector('.wt-next');
+  let hours=[],sel=-1,selected=null,width=0,drag=null,destroyed=false;
+  const stamp=t=>t>1e12?t/1000:t,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const dayLabel=t=>{const p=Object.fromEntries(dayFmt.formatToParts(t*1000).map(x=>[x.type,x.value]));return p.weekday+' '+p.day};
+  const label=t=>dayLabel(t)+' · '+timeFmt.format(t*1000);
+  const start=()=>hours[0].t,end=()=>hours[hours.length-1].t;
+  const x=t=>end()==start()?0:(t-start())/(end()-start())*width;
+  function near(t){let k=0;for(let i=1;i<hours.length;i++)if(Math.abs(hours[i].t-t)<Math.abs(hours[k].t-t))k=i;return k}
+  function tooltip(){if(sel<0||!width)return;const r=el.getBoundingClientRect(),t=track.getBoundingClientRect(),half=tip.offsetWidth/2+3;tip.style.left=clamp(x(hours[sel].t),r.left-t.left+half,r.right-t.left-half)+'px'}
+  function markNow(){if(!hours.length)return;const t=Date.now()/1000;now.hidden=t<start()||t>end();if(!now.hidden){now.style.left=x(t)+'px';now.title='Now: '+label(t)}}
+  function choose(k,emit=false){if(!hours.length)return;k=clamp(k,0,hours.length-1);const changed=k!==sel;sel=k;selected=hours[k].t;
+   track.setAttribute('aria-valuenow',k);track.setAttribute('aria-valuetext',label(selected));track.dataset.time=selected;
+   const px=x(selected),hit=clamp(px,22,Math.max(22,width-22));thumb.style.left=hit+'px';dot.style.left=(px-hit+22)+'px';fill.style.width=px+'px';tip.textContent=label(selected);tooltip();
+   prev.disabled=k===0;next.disabled=k===hours.length-1;if(emit&&changed&&opts.onHour)opts.onHour(selected)}
+  function layout(){if(!hours.length)return;width=track.clientWidth;if(!width)return;ticks.replaceChildren();const days=[],step=(end()-start())/3600;
+   hours.forEach(h=>{const hr=+hourFmt.format(h.t*1000),major=hr===0;if(!major&&(hr%6||width/Math.max(1,step)*6<12))return;
+    const px=x(h.t),tick=document.createElement('i');tick.className='wt-tick'+(major?' wt-major':' wt-minor');tick.style.left=Math.min(width-2,px)+'px';ticks.appendChild(tick);
+    if(major){const text=document.createElement('span');text.className='wt-day';text.dataset.time=h.t;text.textContent=width/7>=64?dayLabel(h.t):weekFmt.format(h.t*1000);ticks.appendChild(text);
+     const half=text.offsetWidth/2+1,cx=clamp(px,half,width-half);text.style.left=cx+'px';days.push({text,left:cx-half,right:cx+half,cx})}});
+   let stride=1;while(stride<days.length){let last=null,overlap=false;for(let i=0;i<days.length;i+=stride){const d=days[i];if(last&&(d.left<last.right+6||d.cx-last.cx<44)){overlap=true;break}last=d}if(!overlap)break;stride*=2}
+   days.forEach((d,i)=>d.text.hidden=i%stride!==0);track.dataset.labelStride=stride;track.dataset.rangeStart=start();track.dataset.rangeEnd=end();
+   choose(sel<0?near(Date.now()/1000):sel);markNow()}
+  function setHours(hs){if(opts.getHours)hs=opts.getHours();hours=hs.map(h=>({t:stamp(h.t)})).filter(h=>Number.isFinite(h.t)).sort((a,b)=>a.t-b.t).filter((h,i,a)=>!i||h.t!==a[i-1].t);
+   track.setAttribute('aria-disabled',!hours.length);track.setAttribute('aria-valuemin',0);track.setAttribute('aria-valuemax',Math.max(0,hours.length-1));
+   if(!hours.length){sel=-1;ticks.replaceChildren();thumb.hidden=now.hidden=true;prev.disabled=next.disabled=true;tip.textContent='No forecast hours';return}
+   thumb.hidden=false;sel=near(selected??Math.floor(Date.now()/36e5)*3600);layout()}
+  function atClient(px){if(!hours.length||!width)return;const f=clamp((px-track.getBoundingClientRect().left)/width,0,1);choose(near(start()+f*(end()-start())),true)}
+  function finish(e){if(!drag||drag.id!==e.pointerId)return;drag=null;el.classList.remove('wt-drag');if(track.hasPointerCapture(e.pointerId))track.releasePointerCapture(e.pointerId)}
+  track.addEventListener('pointerdown',e=>{if(!hours.length||e.button>0)return;e.preventDefault();track.focus({preventScroll:true});drag={id:e.pointerId,offset:e.target===thumb?e.clientX-track.getBoundingClientRect().left-x(hours[sel].t):0};track.setPointerCapture(e.pointerId);el.classList.add('wt-drag');if(e.target!==thumb)atClient(e.clientX)});
+  track.addEventListener('pointermove',e=>{if(drag&&drag.id===e.pointerId)atClient(e.clientX-drag.offset)});['pointerup','pointercancel','lostpointercapture'].forEach(t=>track.addEventListener(t,finish));
+  track.addEventListener('keydown',e=>{if(!hours.length)return;const d={ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1,PageUp:24,PageDown:-24};
+   if(e.key in d||e.key==='Home'||e.key==='End'){e.preventDefault();choose(e.key==='Home'?0:e.key==='End'?hours.length-1:sel+d[e.key],true)}});
+  prev.onclick=()=>choose(sel-1,true);next.onclick=()=>choose(sel+1,true);
+  const ro=new ResizeObserver(()=>{if(!destroyed)layout()});ro.observe(track);const timer=setInterval(markNow,60000);setHours(opts.hours||[]);
+  return{setHours,setSelected(t){selected=stamp(t);const hs=opts.getHours&&opts.getHours();if(hs&&(!hours.length||hs.length!==hours.length||stamp(hs[0].t)!==start()||stamp(hs[hs.length-1].t)!==end()))setHours(hs);if(hours.length)choose(near(selected))},destroy(){destroyed=true;clearInterval(timer);ro.disconnect();el.remove()}};
+ }
+ return{create};
+})();
+
 // ===== Wind map (v0.9.24): Leaflet map + Open-Meteo grid + WindFlow moving lines + DayStrip =====
 // Times: Open-Meteo returns unixtime (UTC seconds); every label is formatted in America/New_York via Intl, so EDT->EST (Nov 1) is handled.
 const WM={map:null,wf:null,ds:null,mk:null,area:null,cache:new Map(),hi:0,loadP:null,locKey:"",exactSeq:0,spot:null};
@@ -1674,7 +1734,7 @@ async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLe
   // unlike USGS imagery, which has black no-data blocks offshore at zoom 9–10.
   L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:12,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
   WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>wmEnsureArea());WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
-  WM.ds=DayStrip.create($("wmDays"),{hours:[],tz:WM_TZ,onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
+  WM.ds=WindTimeline.create($("wmDays"),{hours:[],tz:WM_TZ,getHours:()=>WM.area?WM.area.H.map(h=>({t:h.t/1000})):[],onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
   $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}
  WM.map.invalidateSize();
  if(key!=WM.locKey||force){WM.locKey=key;const dl=50/69,dn=dl/Math.cos(lat*Math.PI/180);WM.tap=null;WM.stripDone=0;if(WM.tapMk){WM.tapMk.remove();WM.tapMk=null}$("wmRead").innerHTML='<span class="mut">Tap the map for speed, gusts and direction at that point.</span>';

@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.27 · Oct 21 2026";// bump on every push
+const BUILD="v0.9.28 · Oct 21 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1216,7 +1216,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     rotShift:-11.5, rotTol:2.5, minPts:7, maxSpread:2.5, minHourFrac:0.6, minHours:6,   // detector
     refetch:true, maxRefetches:2, allowCorrection:false, blendHours:6, blendMode:'none', agreeDeg:3, runLagSec:5400, capture:false, captureKey:'brinecast.rotSamples', captureMax:2, ttlMs:3600e3,
     ecHours:48, ecMinSamples:100, ecLo:-16, ecHi:-8, ecPtMax:-6, ecMinPts:6, ecMinKt:3,
-    refShift:-11.5, refTol:3, refTtlMs:9*3600e3, refKey:'brinecast.ecRef', refArea:0.5, refSaveMax:8,   // reference-gap check
+    refShift:-11.5, refTol:3, refTtlMs:9*3600e3, refKey:'brinecast.ecRef', refArea:0.5, refSaveMax:8, pairSaveMax:15, refPtMax:-6,   // reference-gap check
     retryAfterMs:300000, maxRetries:1, backoffMinMs:60000, backoffMaxMs:15*60000,
     pairAfterMs:300000, pairTiming:'later', pairBufferMs:5*60000, pairMaxMs:75*60000, pairTrustClean:false, lambertTol:2, lambertLat1:38.5, lambertLon0:-97.5 };   // first-load pair (v0.9.27)   // per-load ECMWF check (no baseline needed)
   var R2D=180/Math.PI;
@@ -1283,12 +1283,12 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     if(R && R.pointMedians && R.pointMedians.length===check.length && R.median!=null){   // high confidence: shift vs that area's recent clean gap
       var lo=o.refShift-o.refTol, hi=o.refShift+o.refTol, dl=[];
       out.pointMedians.forEach(function(m,i){ var b=R.pointMedians[i]; if(m!=null&&b!=null) dl.push(wrap(m-b)); });
-      out.confidence='high'; out.delta=wrap(out.median-R.median); out.pointDeltas=dl; out.ptHits=dl.filter(function(x){return x>=lo&&x<=hi;}).length;
+      out.confidence='high'; out.delta=wrap(out.median-R.median); out.pointDeltas=dl; out.ptHits=dl.filter(function(x){return x<=o.refPtMax;}).length;   // (E) one-sided: points shifted ≤refPtMax (-6°); pooled Δ must still be in refShift±refTol
       out.rotated = out.delta>=lo && out.delta<=hi && out.ptHits>=Math.ceil(dl.length*o.ecMinPts/9);
-      var need=Math.ceil(dl.length*o.ecMinPts/9), up=dl.filter(function(x){return x>=-hi&&x<=-lo;}).length;   // +11.5±3: the REFERENCE was the rotated copy
+      var need=Math.ceil(dl.length*o.ecMinPts/9), up=dl.filter(function(x){return x>=-o.refPtMax;}).length;   // +11.5±3: the REFERENCE was the rotated copy
       out.refBad = !out.rotated && out.delta>=-hi && out.delta<=-lo && up>=need;
-      if(out.refBad){ out.reason='reference looks rotated: gap '+out.median.toFixed(1)+'° − ref '+R.median.toFixed(1)+'° = +'+out.delta.toFixed(1)+'°, '+up+'/'+dl.length+' points in +'+(-hi)+'…+'+(-lo)+'°'; return out; }
-      out.reason=(out.rotated?'rotated vs reference: ':'ok vs reference: ')+'gap '+out.median.toFixed(1)+'° − ref '+R.median.toFixed(1)+'° = '+out.delta.toFixed(1)+'°, '+out.ptHits+'/'+dl.length+' points in '+lo+'…'+hi+'°'; return out; }
+      if(out.refBad){ out.reason='reference looks rotated: gap '+out.median.toFixed(1)+'° − ref '+R.median.toFixed(1)+'° = +'+out.delta.toFixed(1)+'°, '+up+'/'+dl.length+' points ≥+'+(-o.refPtMax)+'°'; return out; }
+      out.reason=(out.rotated?'rotated vs reference: ':'ok vs reference: ')+'gap '+out.median.toFixed(1)+'° − ref '+R.median.toFixed(1)+'° = '+out.delta.toFixed(1)+'°, '+out.ptHits+'/'+dl.length+' points ≤'+o.refPtMax+'°'; return out; }
     out.confidence='low';
     out.rotated = out.median>=o.ecLo && out.median<=o.ecHi && out.ptHits>=o.ecMinPts;
     out.reason=(out.rotated?'rotated vs ECMWF (fixed band, low confidence): ':'ok vs ECMWF (fixed band, low confidence, no reference): ')+'pooled '+out.median.toFixed(1)+'°, '+out.ptHits+'/'+check.length+' points ≤'+o.ecPtMax+'° ('+out.n+' samples)'; return out; }
@@ -1306,12 +1306,12 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   function dropRef(S, lat, lon, o){ o=Object.assign({},DEF,o); if(S) delK(S, refAreaKey(lat,lon,o)); }
   function agrees(a,b,o){ if(Math.abs(wrap(a.median-b.median))>o.agreeDeg) return false; var d=[];
     a.pointMedians.forEach(function(m,i){ var x=b.pointMedians[i]; if(m!=null&&x!=null) d.push(Math.abs(wrap(m-x))); }); return d.length>0 && med(d)<=o.agreeDeg; }
-  function saveRef(S, lat, lon, ec, now, o){ o=Object.assign({},DEF,o); if(!S||!ec||!ec.checked||ec.rotated||ec.refBad||Math.abs(ec.median)>o.refSaveMax) return false;
+  function saveRef(S, lat, lon, ec, now, o){ o=Object.assign({},DEF,o); if(!S||!ec||!ec.checked||ec.rotated||ec.refBad||!pairPromoteOk(ec,o)) return false;   // v0.9.28: same one-sided limit as pair promotion
     var k=refAreaKey(lat,lon,o), e={savedAt:now, runId:o.runId!=null?o.runId:null, hash:o.hash||null, lat:+lat.toFixed(2), lon:+lon.toFixed(2), median:ec.median, pointMedians:ec.pointMedians, n:ec.n};
     try{
       if(ec.confidence==='high'&&fresh(getJ(S,k),now,o)){ S.setItem(k, JSON.stringify(e)); return 'refreshed'; }
       var c=getJ(S,k+':cand');
-      if(fresh(c,now,o) && c.pointMedians.length===e.pointMedians.length && !(c.hash&&e.hash&&c.hash===e.hash) && agrees(c,e,o)){ S.setItem(k, JSON.stringify(e)); delK(S,k+':cand'); return 'promoted'; }
+      if(fresh(c,now,o) && c.pointMedians.length===e.pointMedians.length && !(c.hash&&e.hash&&c.hash===e.hash) && agrees(c,e,o)){ e.prov=true; S.setItem(k, JSON.stringify(e)); delK(S,k+':cand'); return 'promoted'; }
       S.setItem(k+':cand', JSON.stringify(e)); return 'candidate';
     }catch(_){ return false; } }
   /* First-load pair (v0.9.27). An area with no reference gets ONE quiet second fetch (once per area per refTtl). The second load is
@@ -1325,6 +1325,15 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   function pairDelay(o, now){ var f=o.pairAfterMs, n=o.meta?nextRunAt(o.meta):(o.nextRunAt||null), d=n!=null&&n>now?n-now+o.pairBufferMs:null, r=f;
     if(d!=null){ if(o.pairTiming==='nextRun') r=d; else if(o.pairTiming==='sooner') r=Math.min(f,d); else if(o.pairTiming==='later') r=Math.max(f,d); }
     return Math.min(r, o.pairMaxMs); }
+  // v0.9.28: an agreeing pair may promote with a natural gap up to pairSaveMax (15°), one-sided: refuse if the gap fits rotation
+  // (Lambert angle at >=ecMinPts of 9 check points within lambertTol via checkLons, or pooled gap in refShift±refTol).
+  function pairFitsRot(ec, o){ var pm=ec.pointMedians||[], n=0, hit=0;
+    if(o.checkLons){ pm.forEach(function(m,i){ if(m!=null&&o.checkLons[i]!=null){ n++; if(Math.abs(m-expectedRot(o.checkLons[i],o))<=o.lambertTol) hit++; } });
+      if(n&&hit>=Math.ceil(n*o.ecMinPts/9)) return true; }
+    return ec.median!=null && Math.abs(ec.median-o.refShift)<=o.refTol; }
+  function pairPromoteOk(ec, o){ return ec.median!=null && Math.abs(ec.median)<=o.pairSaveMax && !pairFitsRot(ec,o); }
+  // (D) one quiet confirm fetch per area per refTtlMs, at the next HRRR run (pairDelay: 'later', capped at pairMaxMs)
+  function confirmSched(out,S,kA,now,o){ if(!S||!kA||o.confirmFetch===false||o.trigger==='pan') return; if(fresh(getJ(S,kA+':confAt'),now,o)) return; S.setItem(kA+':confAt',JSON.stringify({savedAt:now})); out.confirmFetch=true; out.confirmAfterMs=pairDelay(o,now); }
   function pairCompare(first, ec, hash, o){ var r={outcome:'unresolved', delta:null, down:0, up:0, n:0};
     if(first.hash&&hash&&first.hash===hash){ r.outcome='identical'; return r; }
     var dl=[], ex=[]; ec.pointMedians.forEach(function(m,i){ var b=first.pointMedians[i]; if(m!=null&&b!=null){ dl.push(wrap(m-b)); ex.push(o.checkLons&&o.checkLons[i]!=null?expectedRot(o.checkLons[i],o):o.refShift); } });
@@ -1334,6 +1343,8 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     if(agrees(first,ec,o)) r.outcome='agree';
     else if(r.down>=need&&Math.abs(r.delta-exP)<=tol+1) r.outcome='secondRotated';
     else if(r.up>=need&&Math.abs(r.delta+exP)<=tol+1) r.outcome='firstRotated';
+    else if(Math.abs(r.delta-o.refShift)<=o.refTol&&dl.filter(function(x){return x<=o.refPtMax;}).length>=need) { r.outcome='secondRotated'; r.oneSided=true; }   // (E) pooled −11.5±3 and ≥6 pts ≤−6°
+    else if(Math.abs(r.delta+o.refShift)<=o.refTol&&dl.filter(function(x){return x>=-o.refPtMax;}).length>=need) { r.outcome='firstRotated'; r.oneSided=true; }
     return r; }
   // content hash of hourly data (ignores generationtime_ms etc.) to spot byte-identical repeat copies
   function dataHash(json){ var A=Array.isArray(json)?json:[json], s=JSON.stringify(A.map(function(p){return p&&p.hourly;})), h=5381; for(var i=0;i<s.length;i++) h=((h<<5)+h+s.charCodeAt(i))|0; return (h>>>0).toString(16)+':'+s.length; }
@@ -1386,7 +1397,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
      Caller: show data now; if out.retry, set ONE timer for retryAfterMs and call again with attempt:1, prevHash:out.hash; if out.backoff,
      make no requests for out.backoffMs (pass it back as prevBackoffMs next 429). */
   function decide(P, check, base, o){ o=Object.assign({},DEF,o); var att=o.attempt||0;
-    var out={status:'unchecked', needRefetch:false, corrected:false, directionsSuspect:false, retry:false, retryAfterMs:0, retryCount:att, hash:null, backoff:false, backoffMs:0, det:null, ec:null, diffs:{}, by:null, reason:'', refSaved:false, refDropped:false, pairFetch:false, pairAfterMs:0, pair:null};
+    var out={status:'unchecked', needRefetch:false, corrected:false, directionsSuspect:false, retry:false, retryAfterMs:0, retryCount:att, hash:null, backoff:false, backoffMs:0, det:null, ec:null, diffs:{}, by:null, reason:'', refSaved:false, refDropped:false, pairFetch:false, pairAfterMs:0, confirmFetch:false, confirmAfterMs:0, pair:null};
     if(o.httpStatus===429){ out.status='error'; out.backoff=true; out.backoffMs=nextBackoff(o.prevBackoffMs,o); out.reason='429 rate limited: no retry, back off '+out.backoffMs/1000+' s'; return out; }
     var d=checkDiffs(P,check), r; out.diffs=d; out.hash=o.raw?dataHash(o.raw.ncep):null;
     if(base && typeof base.offer==='function') r=base.offer(d, o.runId); else r=base?{status:'checked', det:detect(d,base,o)}:{status:'unchecked', det:null};
@@ -1401,17 +1412,21 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
     if(o.pair && S && kA){ var first=getJ(S,kA+':pend'); delK(S,kA+':pend'); out.pair={outcome:'no first load', first:null};
       if(first&&fresh(first,now,o)&&ec.checked){ var pc=pairCompare(first,ec,out.hash,o); out.pair=pc; out.retry=false; out.confidence='pair';
         var cur={savedAt:now, runId:o.runId!=null?o.runId:null, hash:out.hash, lat:+c.lat.toFixed(2), lon:+c.lon.toFixed(2), median:ec.median, pointMedians:ec.pointMedians, n:ec.n};
-        if(pc.outcome==='agree'&&!ec.rotated&&Math.abs(ec.median)<=o.refSaveMax){ S.setItem(kA,JSON.stringify(cur)); delK(S,kA+':cand'); out.refSaved='promoted'; out.status='checked'; P.checked=true; P.ecmwfOk=true; P.directionsSuspect=false; out.directionsSuspect=false; out.reason='pair agrees (Δ '+pc.delta.toFixed(1)+'°): reference promoted'; return out; }
+        if(pc.outcome==='agree'&&!ec.rotated&&pairPromoteOk(ec,o)){ cur.prov=true; S.setItem(kA,JSON.stringify(cur)); delK(S,kA+':cand'); out.refSaved='promoted'; out.status='unchecked'; P.checked=false; P.ecmwfOk=false; P.directionsSuspect=false; out.directionsSuspect=false; confirmSched(out,S,kA,now,o); out.reason='pair agrees (Δ '+pc.delta.toFixed(1)+'°): reference promoted as provisional, not checked until the next run agrees'; return out; }
         if(pc.outcome==='secondRotated'){ S.setItem(kA+':cand',JSON.stringify(first)); out.status='checked'; P.checked=true; P.ecmwfOk=false; P.directionsSuspect=true; out.directionsSuspect=true; out.reason='pair: this copy is '+pc.delta.toFixed(1)+'° vs the first load: flagged, first kept as candidate'; return out; }
         if(pc.outcome==='firstRotated'){ S.setItem(kA+':cand',JSON.stringify(cur)); out.firstWasRotated=true; var tr=o.pairTrustClean; out.status=tr?'checked':'unchecked'; P.checked=!!tr; P.ecmwfOk=!!tr; P.directionsSuspect=false; out.directionsSuspect=false; out.refSaved='candidate'; out.reason='pair: first load was rotated (this one +'+pc.delta.toFixed(1)+'°): this copy kept as candidate'; return out; }
         out.status='unchecked'; P.checked=false; P.ecmwfOk=false; P.directionsSuspect=!!ec.rotated; out.directionsSuspect=!!ec.rotated;
-        out.reason=pc.outcome==='identical'?'pair: identical copy, still not checked':'pair unresolved (Δ '+(pc.delta!=null?pc.delta.toFixed(1):'?')+'°), still not checked'; return out; } }
+        out.reason=pc.outcome==='identical'?'pair: identical copy, still not checked':pc.outcome==='agree'?'pair agrees but the gap ('+(ec.median!=null?ec.median.toFixed(1):'?')+'°) fits rotation or exceeds '+o.pairSaveMax+'°, still not checked':'pair unresolved (Δ '+(pc.delta!=null?pc.delta.toFixed(1):'?')+'°), still not checked'; return out; } }
     if(!o.pair && !ref && S && kA && ec.checked && (o.attempt||0)===0 && o.trigger!=='pan' && o.pairFetch!==false){ var pd=getJ(S,kA+':pairAt');
       if(!fresh(pd,now,o)){ S.setItem(kA+':pairAt',JSON.stringify({savedAt:now})); S.setItem(kA+':pend',JSON.stringify({savedAt:now, hash:out.hash, median:ec.median, pointMedians:ec.pointMedians}));
         out.pairFetch=true; out.pairAfterMs=pairDelay(o,now); } }
     if(ec.refBad){ if(c&&S) dropRef(S,c.lat,c.lon,o); out.refDropped=true; out.status='unchecked'; P.checked=false; P.ecmwfOk=false;
       if(c&&S) out.refSaved=saveRef(S,c.lat,c.lon,Object.assign({},ec,{refBad:false,confidence:'low'}),now,Object.assign({},o,{hash:out.hash})); out.reason=ec.reason+'; reference dropped, this load starts a new candidate'; return out; }
-    if(!det.rotated&&!ec.rotated){ if(c&&S&&ec.checked) out.refSaved=saveRef(S,c.lat,c.lon,ec,now,Object.assign({},o,{hash:out.hash})); out.reason=ec.reason||det.reason; return out; }
+    if(ref&&ref.prov&&S&&kA){ // v0.9.28 (D): a provisional reference is confirmed only by a later clean, non-identical load
+      if(!det.rotated&&!ec.rotated&&ecHigh&&!(ref.hash&&out.hash&&ref.hash===out.hash)&&agrees(ref,ec,o)){ delete ref.prov;   /* confirm needs |Δ|<=agreeDeg (3°) vs the provisional ref, pooled and per point */ ref.confirmedAt=now; S.setItem(kA,JSON.stringify(ref)); out.refSaved='confirmed'; out.status='checked'; P.checked=true; P.ecmwfOk=true; out.reason='provisional reference confirmed (Δ '+(ec.delta!=null?(+ec.delta).toFixed(1):'?')+'°)'; return out; }
+      if(!det.rotated&&!ec.rotated){ out.status='unchecked'; P.checked=false; P.ecmwfOk=false; out.reason='reference still provisional'+(ref.hash===out.hash?' (identical copy)':ec.delta!=null?' (Δ '+(+ec.delta).toFixed(1)+'° vs reference, needs ≤'+o.agreeDeg+'°)':'')+', not checked yet'; return out; }
+      P.ecmwfOk=false; }
+    if(!det.rotated&&!ec.rotated){ if(c&&S&&ec.checked) out.refSaved=saveRef(S,c.lat,c.lon,ec,now,Object.assign({},o,{hash:out.hash})); if(out.refSaved==='promoted'){ out.status='unchecked'; P.checked=false; P.ecmwfOk=false; confirmSched(out,S,kA,now,o); } out.reason=ec.reason||det.reason; return out; }
     out.by=det.rotated?(ec.rotated?'both':'baseline'):'ecmwf'; if(!det.rotated) det={rotated:true, shift:o.rotShift, reason:ec.reason}; out.det=det; out.status='checked';
     if(o.capture) captureSample(o.raw, det, o);
     if(o.allowCorrection){ correct(P, det.shift!=null?det.shift:o.rotShift); out.corrected=true; out.diffs=checkDiffs(P,check); return out; }
@@ -1453,7 +1468,7 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   function cacheGet(store,key,o){ o=Object.assign({},DEF,o); var e=store.get(key); return e && Date.now()-e.fetchedAt<o.ttlMs ? e : null; }
 
   var api={defaults:DEF, wrap:wrap, uv:uv, spdDir:spdDir, grid:grid, buildRequests:buildRequests, parse:parse, parseAll:parseAll,
-    checkDiffs:checkDiffs, ecmwfCheck:ecmwfCheck, loadRef:loadRef, saveRef:saveRef, dropRef:dropRef, expectedRot:expectedRot, nextRunAt:nextRunAt, pairDelay:function(o,now){return pairDelay(Object.assign({},DEF,o),now);}, pairCompare:pairCompare, refAreaKey:refAreaKey, dataHash:dataHash, nextBackoff:nextBackoff, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
+    checkDiffs:checkDiffs, ecmwfCheck:ecmwfCheck, loadRef:loadRef, saveRef:saveRef, dropRef:dropRef, expectedRot:expectedRot, nextRunAt:nextRunAt, pairDelay:function(o,now){return pairDelay(Object.assign({},DEF,o),now);}, pairCompare:pairCompare, pairFitsRot:function(ec,o){return pairFitsRot(ec,Object.assign({},DEF,o));}, pairPromoteOk:function(ec,o){return pairPromoteOk(ec,Object.assign({},DEF,o));}, refAreaKey:refAreaKey, dataHash:dataHash, nextBackoff:nextBackoff, detect:detect, detectPair:detectPair, correct:correct, decide:decide, createBaseline:createBaseline, runIdFrom:runIdFrom, runIdFromMeta:runIdFromMeta, metaUrl:metaUrl, captureSample:captureSample, exportSamples:exportSamples, blend:blend, fieldAt:fieldAt,
     cacheKey:cacheKey, cacheGet:cacheGet, cachePut:cachePut};
   if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.WindData=api;
 })(this);
@@ -1585,13 +1600,16 @@ async function wmGuarded(A,ec,trigger,attempt,prevHash,pair){const run=await wmR
  try{nc=await wmGetLoad(A,"ncep")}catch(e){if(e.status==429){const P0={hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null};wmBackoff(WindData.decide(P0,A.g.check,null,{trigger,attempt,prevHash,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}))}throw e}
  const P=WindData.parseAll(nc,ec),r=WindData.decide(P,A.g.check,null,Object.assign({},WM_WD,WM_GRID,{trigger,attempt:attempt||0,prevHash:prevHash||null,raw:{ncep:nc,ecmwf:ec},storage:localStorage,center:{lat:A.cLat,lon:A.cLon},runId:run.id,meta:run.meta,checkLons:A.g.check.map(k=>A.g.lon[k]),pairTiming:"later",pairMaxMs:75*6e4,pairTrustClean:false,pair:!!pair}));
  WM.lastGuard=Object.assign({},r,{trigger,attempt:attempt||0,ecmwfOk:!!P.ecmwfOk,suspect:r.directionsSuspect,run:{id:run.id,src:run.src},area:A.key,pairPending:!!r.pairFetch,pairAfterMs:r.pairAfterMs||0,pairResult:r.pair||null,reason:r.reason||(r.ec&&r.ec.reason)});// test hook: the decide() output
- return{nc,rot:!!r.directionsSuspect,status:r.status,ecmwfOk:!!P.ecmwfOk,run,why:r.reason||"",retry:!!r.retry,retryAfterMs:r.retryAfterMs,pairFetch:!!r.pairFetch,pairAfterMs:r.pairAfterMs||0,hash:r.hash,tries:attempt||0}}
+ return{nc,rot:!!r.directionsSuspect,status:r.status,ecmwfOk:!!P.ecmwfOk,run,why:r.reason||"",retry:!!r.retry,retryAfterMs:r.retryAfterMs,pairFetch:!!r.pairFetch,pairAfterMs:r.pairAfterMs||0,confirmFetch:!!r.confirmFetch,confirmAfterMs:r.confirmAfterMs||0,hash:r.hash,tries:attempt||0}}
 // follow-up fetch for a load: the first-load pair (WM.pairT) or, if no pair, one delayed retry (WM.retryT). Never both; one of each at most.
-function wmClearTimers(){if(WM.retryT){clearTimeout(WM.retryT.t);WM.retryT=null}if(WM.pairT){clearTimeout(WM.pairT.t);WM.pairT=null}if(WM.tapRetryT){clearTimeout(WM.tapRetryT);WM.tapRetryT=null}}
-function wmScheduleFollow(A,G){const pair=G.pairFetch,ms=pair?G.pairAfterMs:G.retry?G.retryAfterMs:0;if(!ms)return;const slot=pair?"pairT":"retryT";if(WM[slot])clearTimeout(WM[slot].t);
- WM[slot]={key:A.key,at:Date.now()+ms,t:setTimeout(async()=>{WM[slot]=null;try{const ec=await wmGetLoad(A,"ecmwf"),G2=await wmGuarded(A,ec,"load",1,G.hash,pair);
+function wmPending(key){return !!((WM.retryT&&WM.retryT.key==key)||(WM.pairT&&WM.pairT.key==key)||(WM.confT&&WM.confT.key==key))}// v0.9.28: is a quiet re-check still coming for this area?
+function wmClearTimers(){if(WM.retryT){clearTimeout(WM.retryT.t);WM.retryT=null}if(WM.pairT){clearTimeout(WM.pairT.t);WM.pairT=null}if(WM.confT){clearTimeout(WM.confT.t);WM.confT=null}if(WM.tapRetryT){clearTimeout(WM.tapRetryT);WM.tapRetryT=null}}
+function wmScheduleFollow(A,G){const pair=!!G.pairFetch,conf=!pair&&!!G.confirmFetch,ms=pair?G.pairAfterMs:conf?G.confirmAfterMs:G.retry?G.retryAfterMs:0;if(!ms)return;const rr=()=>{if(WM.area&&WM.area.A.key==A.key)wmSetHour(WM.hi)};// re-render the warning when the promise changes
+ const slot=pair?"pairT":conf?"confT":"retryT";if(WM[slot])clearTimeout(WM[slot].t);
+ WM[slot]={key:A.key,at:Date.now()+ms,t:setTimeout(async()=>{WM[slot]=null;const was=!!(WM.cache.get(A.key)&&WM.cache.get(A.key).G.ecmwfOk);try{const ec=await wmGetLoad(A,"ecmwf"),G2=await wmGuarded(A,ec,"load",conf?2:1,G.hash,pair);
   const raw={fetchedAt:Date.now(),nc:G2.nc,ec,rot:G2.rot,why:G2.why,tries:1,status:G2.status,ecmwfOk:G2.ecmwfOk,run:G2.run};wmLSput("d:"+A.key,raw);const R=wmBuild(A,raw);WM.cache.set(A.key,R);
-  if(WM.area&&WM.area.A.key==A.key){WM.area=R;wmSetHour(WM.hi)}}catch(e){if(e.status==429)wmBackoff(WindData.decide({hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null},A.g.check,null,{trigger:"load",attempt:1,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}));console.warn("wind follow-up:",e.message)}},ms)}}
+  if(G2.confirmFetch)wmScheduleFollow(A,G2);// (D) a promoted pair gets one confirm fetch
+  if(WM.area&&WM.area.A.key==A.key){WM.area=R;wmSetHour(WM.hi);if(R.G.ecmwfOk&&!was){WM.pc&&WM.pc.clear();if(WM.tap&&WM.area===R)wmReadout(WM.tap.lat,WM.tap.lng,true)}}}catch(e){if(e.status==429)wmBackoff(WindData.decide({hrrr:{t:[],pts:[]},best:{t:[],pts:[]},ecmwf:null},A.g.check,null,{trigger:"load",attempt:1,raw:{ncep:null},httpStatus:429,prevBackoffMs:WM.boMs||0}));console.warn("wind follow-up:",e.message);rr()}},ms)};rr()}
 function wmLoadArea(A,trigger){WM.inf=WM.inf||new Map();const C=WM.cache.get(A.key);if(C&&Date.now()-C.fetchedAt<WM_TTL)return Promise.resolve(C);if(WM.inf.has(A.key))return WM.inf.get(A.key);// one request in flight per area
  const P=wmLoadArea2(A,trigger).finally(()=>WM.inf.delete(A.key));WM.inf.set(A.key,P);return P}
 function wmBuild(A,raw){const P=WindData.parseAll(raw.nc,raw.ec),B=WindData.blend(P,WM_WD);
@@ -1620,7 +1638,7 @@ async function wmPoint2(lat,lon,k,attempt,prevHash){wmBackoffCheck();const u=`ht
 
 const wmModelName=m=>m=="hrrr"?"NOAA HRRR 3 km (high-res US model)":"longer-range model (Open-Meteo best match)";
 function wmSetHour(k,fromStrip){const R=WM.area;if(!R||!R.H.length)return;WM.hi=Math.max(0,Math.min(R.H.length-1,k));const h=R.H[WM.hi];WM.t=h.t;
- $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(!h.rot&&R.status!="checked"?'<br><span class="mut" title="'+esc(R.guard||'')+'">Directions not yet checked (no cross-check reference for this area yet)</span>':'')+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off (the forecast server sent a rotated copy; it will be checked again quietly)</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)))+" ET";
+ $("wmLbl").textContent=wmLabel(h.t)+(Math.floor(Date.now()/36e5)*36e5==h.t?" · now":"");$("wmModel").innerHTML="Model: "+esc(wmModelName(h.model))+" · Open-Meteo "+WM_N+"×"+WM_N+" grid"+(R.switchT?"<br>Longer-range forecast from "+esc(wmLabel(R.switchT)):"")+(!h.rot&&R.status!="checked"?'<br><span class="mut" title="'+esc(R.guard||'')+'">Directions not yet checked (waiting to confirm against another forecast)</span>':'')+(h.rot?'<br><span class="wmWarn" title="'+esc(h.why)+'">⚠️ Directions may be off'+(wmPending(R.A.key)?' (the forecast server sent a rotated copy; it will be checked again quietly)':': the forecast server sent a rotated copy.')+'</span>':"")+"<br>Wind at 10 m (33 ft) above ground · Forecast fetched "+esc(fmtT(new Date(R.fetchedAt)))+" ET";
  WM.wf.setField(h.field);WM.wf.start();if(WM.ds&&!fromStrip)WM.ds.setSelected(h.t/1000);if(WM.tap)wmReadout(WM.tap.lat,WM.tap.lng,true)}
 function wmGrid(R,lat,lon,arr){// bilinear on a scalar grid (gusts)
  const A=R.A,fy=(lat-A.lat0)/A.dLat,fx=(lon-A.lon0)/A.dLon;if(!(fx>=0&&fy>=0&&fx<=A.nLon-1&&fy<=A.nLat-1))return NaN;const x0=Math.min(Math.floor(fx),A.nLon-2),y0=Math.min(Math.floor(fy),A.nLat-2),tx=fx-x0,ty=fy-y0,n=A.nLon,i=y0*n+x0;

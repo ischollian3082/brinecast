@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.29 · Nov 10 2026";// bump on every push
+const BUILD="v0.9.30 · Nov 12 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1569,9 +1569,9 @@ const WindTimeline=(()=>{
   if(!document.getElementById('wind-timeline-css')){const s=document.createElement('style');s.id='wind-timeline-css';s.textContent=CSS;document.head.appendChild(s)}
   const tz=opts.tz||'America/New_York',dayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',day:'numeric'}),
    weekFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short'}),hourFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23'}),
-   timeFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',timeZoneName:'short'});
+   timeFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',timeZoneName:'short'}),keyFmt=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'});
   const el=document.createElement('div');el.className='wt-root';
-  el.innerHTML='<div class="wt-controls"><button class="wt-step wt-prev" aria-label="Previous hour" type="button" disabled>◀</button><div class="wt-track" role="slider" tabindex="0" aria-label="Wind forecast time" aria-orientation="horizontal" aria-disabled="true"><div class="wt-rail"></div><div class="wt-fill"></div><div class="wt-ticks" aria-hidden="true"></div><div class="wt-now" hidden><span>now</span></div><div class="wt-thumb" aria-hidden="true"><i class="wt-dot"></i></div><div class="wt-tip" aria-hidden="true">Loading forecast…</div></div><button class="wt-step wt-next" aria-label="Next hour" type="button" disabled>▶</button></div><div class="wt-help">Whole forecast · ◀ ▶ / arrow keys: 1 hour · Eastern time</div>';
+  el.innerHTML='<div class="wt-controls"><button class="wt-step wt-prev" aria-label="Previous day" title="Previous day" type="button" disabled>◀</button><div class="wt-track" role="slider" tabindex="0" aria-label="Wind forecast time" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown Home End" aria-orientation="horizontal" aria-disabled="true"><div class="wt-rail"></div><div class="wt-fill"></div><div class="wt-ticks" aria-hidden="true"></div><div class="wt-now" hidden><span>now</span></div><div class="wt-thumb" aria-hidden="true"><i class="wt-dot"></i></div><div class="wt-tip" aria-hidden="true">Loading forecast…</div></div><button class="wt-step wt-next" aria-label="Next day" title="Next day" type="button" disabled>▶</button></div><div class="wt-help">◀ ▶ / ← →: 1 day · ↑ ↓: 1 hour · drag for exact hour · Eastern time</div>';
   container.replaceChildren(el);
   const track=el.querySelector('.wt-track'),fill=el.querySelector('.wt-fill'),ticks=el.querySelector('.wt-ticks'),thumb=el.querySelector('.wt-thumb'),dot=el.querySelector('.wt-dot'),tip=el.querySelector('.wt-tip'),now=el.querySelector('.wt-now'),prev=el.querySelector('.wt-prev'),next=el.querySelector('.wt-next');
   let hours=[],sel=-1,selected=null,width=0,drag=null,destroyed=false;
@@ -1580,6 +1580,12 @@ const WindTimeline=(()=>{
   const label=t=>dayLabel(t)+' · '+timeFmt.format(t*1000);
   const start=()=>hours[0].t,end=()=>hours[hours.length-1].t;
   const x=t=>end()==start()?0:(t-start())/(end()-start())*width;
+  // Day step: same local wall-clock hour on the adjacent calendar day (23/25 real h across DST); if that hour does not exist
+  // (spring forward) or is outside the forecast, the forecast hour nearest to exactly ±24 real hours (clamps at the ends).
+  // A repeated fall-back hour picks the copy nearest to ±24 real hours.
+  function dayStep(dir){if(sel<0)return sel;const t=hours[sel].t,T=t+dir*86400,k0=keyFmt.format(t*1000),hr=hourFmt.format(t*1000),d=new Date(k0+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+dir);
+   const k1=d.toISOString().slice(0,10);let best=-1;hours.forEach((h,i)=>{if(keyFmt.format(h.t*1000)===k1&&hourFmt.format(h.t*1000)===hr&&(best<0||Math.abs(h.t-T)<Math.abs(hours[best].t-T)))best=i});
+   return best>=0?best:near(T)}
   function near(t){let k=0;for(let i=1;i<hours.length;i++)if(Math.abs(hours[i].t-t)<Math.abs(hours[k].t-t))k=i;return k}
   function tooltip(){if(sel<0||!width)return;const r=el.getBoundingClientRect(),t=track.getBoundingClientRect(),half=tip.offsetWidth/2+3;tip.style.left=clamp(x(hours[sel].t),r.left-t.left+half,r.right-t.left-half)+'px'}
   function markNow(){if(!hours.length)return;const t=Date.now()/1000;now.hidden=t<start()||t>end();if(!now.hidden){now.style.left=x(t)+'px';now.title='Now: '+label(t)}}
@@ -1603,9 +1609,9 @@ const WindTimeline=(()=>{
   function finish(e){if(!drag||drag.id!==e.pointerId)return;drag=null;el.classList.remove('wt-drag');if(track.hasPointerCapture(e.pointerId))track.releasePointerCapture(e.pointerId)}
   track.addEventListener('pointerdown',e=>{if(!hours.length||e.button>0)return;e.preventDefault();track.focus({preventScroll:true});drag={id:e.pointerId,offset:e.target===thumb?e.clientX-track.getBoundingClientRect().left-x(hours[sel].t):0};track.setPointerCapture(e.pointerId);el.classList.add('wt-drag');if(e.target!==thumb)atClient(e.clientX)});
   track.addEventListener('pointermove',e=>{if(drag&&drag.id===e.pointerId)atClient(e.clientX-drag.offset)});['pointerup','pointercancel','lostpointercapture'].forEach(t=>track.addEventListener(t,finish));
-  track.addEventListener('keydown',e=>{if(!hours.length)return;const d={ArrowRight:1,ArrowUp:1,ArrowLeft:-1,ArrowDown:-1,PageUp:24,PageDown:-24};
-   if(e.key in d||e.key==='Home'||e.key==='End'){e.preventDefault();choose(e.key==='Home'?0:e.key==='End'?hours.length-1:sel+d[e.key],true)}});
-  prev.onclick=()=>choose(sel-1,true);next.onclick=()=>choose(sel+1,true);
+  track.addEventListener('keydown',e=>{if(!hours.length)return;const d={ArrowUp:1,ArrowDown:-1,PageUp:24,PageDown:-24},day={ArrowRight:1,ArrowLeft:-1};
+   if(e.key in d||e.key in day||e.key==='Home'||e.key==='End'){e.preventDefault();choose(e.key==='Home'?0:e.key==='End'?hours.length-1:e.key in day?dayStep(day[e.key]):sel+d[e.key],true)}});
+  prev.onclick=()=>choose(dayStep(-1),true);next.onclick=()=>choose(dayStep(1),true);
   const ro=new ResizeObserver(()=>{if(!destroyed)layout()});ro.observe(track);const timer=setInterval(markNow,60000);setHours(opts.hours||[]);
   return{setHours,setSelected(t){selected=stamp(t);const hs=opts.getHours&&opts.getHours();if(hs&&(!hours.length||hs.length!==hours.length||stamp(hs[0].t)!==start()||stamp(hs[hs.length-1].t)!==end()))setHours(hs);if(hours.length)choose(near(selected))},destroy(){destroyed=true;clearInterval(timer);ro.disconnect();el.remove()}};
  }
@@ -1729,10 +1735,10 @@ async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng
  catch(e){console.warn("wind map:",e.message);wmMsg("Wind data unavailable: "+e.message+".",true)}}
 async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLeaflet()}catch(e){wmMsg("Map unavailable: "+e.message+". The hourly wind list below still works.",true);return}
  const{lat,lon}=S.loc,key=lat+","+lon;
- if(!WM.map){WM.map=L.map("wmMap",{zoomControl:true,attributionControl:true,minZoom:5,maxZoom:12});
+ if(!WM.map){WM.map=L.map("wmMap",{zoomControl:true,attributionControl:true,minZoom:5,maxZoom:15});
   // EOxCloudless Sentinel-2 2025 mosaic (free for non-commercial use, CC BY-NC-SA 4.0, attribution required). Real ocean pixels at every zoom,
   // unlike USGS imagery, which has black no-data blocks offshore at zoom 9–10.
-  L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:12,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
+  L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:15,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
   WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>wmEnsureArea());WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
   WM.ds=WindTimeline.create($("wmDays"),{hours:[],tz:WM_TZ,getHours:()=>WM.area?WM.area.H.map(h=>({t:h.t/1000})):[],onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
   $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}

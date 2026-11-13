@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.30 · Nov 12 2026";// bump on every push
+const BUILD="v0.9.32 · Nov 13 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1733,22 +1733,185 @@ async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng
  try{const R=await wmLoadArea(A,trig);if(!R.H.length)throw new Error("no wind hours returned");WM.area=R;const now=Math.floor(Date.now()/36e5)*36e5;let k=R.H.findIndex(h=>h.t==(t0??now));if(k<0)k=Math.max(0,R.H.findIndex(h=>h.t>=now));
   wmMsg("");wmSetHour(k);if(!WM.stripDone){WM.stripDone=1;wmStrip()}}
  catch(e){console.warn("wind map:",e.message);wmMsg("Wind data unavailable: "+e.message+".",true)}}
+/* v0.9.31: sharper imagery at z14–16 from USGS The National Map orthoimagery (USDA NAIP aerial photos, public domain, ~0.6–1 m/px, US only),
+   drawn over EOX (Sentinel-2, 10 m, native z14). Off the beach USGS answers with 404s, fully transparent PNGs, or opaque BLACK fill
+   (JPEG and PNG) along the NAIP edge, so each tile is drawn to a canvas (the service sends CORS *), the black no-data fill is cut out,
+   and error / empty / unreadable tiles are hidden: EOX shows through and no black squares appear. */
+// NAIP is ~1.6× brighter and less saturated than EOX over the same land, so the .wmTiles brightness(.55) saturate(.7) on line 53 alone would
+// jump brighter at z13→z14. The USGS layer gets its own rule (injected here, outside the protected lines; .wmTiles.wmUsgs outranks .wmTiles).
+// Brightness/saturation only: no blur, tiles drawn 1:1.
+const WM_USGS_FILTER="brightness(.35) saturate(1.45)";
+function wmUsgsCss(){if(document.getElementById("wm-usgs-css"))return;const st=document.createElement("style");st.id="wm-usgs-css";
+ st.textContent=".wmTiles.wmUsgs{filter:"+WM_USGS_FILTER+"}.wmUsgs canvas.leaflet-tile{outline:1px solid transparent}";document.head.appendChild(st)}
+const WM_USGS="https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}";
+// Key USGS no-data out of one RGBA tile in place; returns the share of pixels transparent afterwards. Already-transparent pixels stay as they are.
+// "Black" = every channel ≤ WM_KEY_BLACK. 1) Black connected to the tile border (flood fill from edge pixels, through transparent ones too) is
+// the coverage-edge fill: if it covers ≥ WM_KEY_GATE px it is made transparent (EOX shows), plus up to WM_KEY_HALO px of JPEG ringing
+// (every channel ≤ WM_KEY_FRINGE) and imagery crumbs < WM_KEY_CRUMB px left inside it. 2) Black blobs NOT touching the border are NAIP
+// dropouts only when what surrounds them is bright (surf/water/sand: median brightest channel of a 2-px ring ≥ WM_KEY_RING); those are
+// filled with the ring's mean colour (no holes, no black specks). Blobs ringed by dark pixels (ponds, shadows, marsh water, dark roofs) are kept,
+// except inside a coverage-edge tile from 1), where they are the mottled edge itself and are keyed.
+// 3) Coverage-edge tiles only: a majority filter (WM_KEY_SMOOTH) turns the lacy edge into clean transparent / opaque areas, then any
+// transparent hole < WM_KEY_HOLE px not touching the tile border is painted with the mean colour around it (no EOX specks through the surf).
+const WM_KEY_BLACK=8,WM_KEY_FRINGE=40,WM_KEY_HALO=2,WM_KEY_GATE=64,WM_KEY_CRUMB=256,WM_KEY_RING=90,WM_KEY_SMOOTH=7,WM_KEY_HOLE=2048,WM_KEY_DIM=60,WM_KEY_RINGPX=3,WM_KEY_FEATHER=3;
+function wmNoData(d,w,h){const n=w*h,mx=new Uint8Array(n),key=new Uint8Array(n),q=new Int32Array(n);let qn=0,c=0;
+ for(let i=0;i<n;i++){const o=i*4;mx[i]=d[o+3]<16?0:Math.max(d[o],d[o+1],d[o+2])}
+ const nb=(i,f)=>{const x=i%w;if(x>0)f(i-1);if(x<w-1)f(i+1);if(i>=w)f(i-w);if(i<n-w)f(i+w)};
+ const seed=i=>{if(!key[i]&&mx[i]<=WM_KEY_BLACK){key[i]=1;q[qn++]=i}};
+ for(let x=0;x<w;x++){seed(x);seed((h-1)*w+x)}for(let y=0;y<h;y++){seed(y*w);seed(y*w+w-1)}
+ for(let j=0;j<qn;j++)nb(q[j],seed);
+ let black=0;for(let j=0;j<qn;j++)if(d[q[j]*4+3]>=16)black++;const edge=black>=WM_KEY_GATE;
+ if(edge){let a=0,b=qn;for(let r=2;r<=WM_KEY_HALO+1;r++){for(let j=a;j<b;j++)nb(q[j],k=>{if(!key[k]&&mx[k]<=WM_KEY_FRINGE){key[k]=r;q[qn++]=k}});a=b;b=qn}
+  const lab=new Int32Array(n);let L=0;for(let i=0;i<n;i++){if(key[i]||lab[i]||d[i*4+3]<16||mx[i]<=WM_KEY_BLACK)continue;L++;const qq=[i];lab[i]=L;
+   for(let j=0;j<qq.length;j++)nb(qq[j],k=>{if(!key[k]&&!lab[k]&&d[k*4+3]>=16&&mx[k]>WM_KEY_BLACK){lab[k]=L;qq.push(k)}});if(qq.length<WM_KEY_CRUMB)for(const k of qq)key[k]=9}}
+ else for(let j=0;j<qn;j++)if(d[q[j]*4+3]>=16)key[q[j]]=0;// small border black: judged like any other blob below
+ let n8=0;for(let i=0;i<n;i++)if(!key[i]&&d[i*4+3]>=16&&mx[i]<=WM_KEY_BLACK)n8++;
+ const T=n8>=WM_KEY_GATE?WM_KEY_FRINGE:WM_KEY_BLACK;// a tile with dropouts (≥ WM_KEY_GATE black px) also has dark JPEG-noise specks (9…40): judge those too
+ const med3=a=>{const v=[[],[],[]];for(const m of a){v[0].push(d[m*4]);v[1].push(d[m*4+1]);v[2].push(d[m*4+2])}return v.map(c=>{c.sort((x,y)=>x-y);return c[c.length>>1]})};
+ const pass=T=>{const seen=new Uint8Array(n);let filled=0;
+ for(let i=0;i<n;i++){if(seen[i]||key[i]||mx[i]>T||d[i*4+3]<16)continue;const blob=[i];seen[i]=1;
+  for(let j=0;j<blob.length;j++)nb(blob[j],k=>{if(!seen[k]&&!key[k]&&d[k*4+3]>=16&&mx[k]<=T){seen[k]=1;blob.push(k)}});
+  const nh=[];for(const k of blob){const x=k%w,y=(k/w)|0;for(let dy=-5;dy<=5;dy++)for(let dx=-5;dx<=5;dx++){const xx=x+dx,yy=y+dy;if(xx<0||yy<0||xx>=w||yy>=h)continue;const m=yy*w+xx;
+   if(key[m]||seen[m]||d[m*4+3]<16)continue;seen[m]=2;nh.push([m,Math.max(Math.abs(dx),Math.abs(dy))])}}for(const [m] of nh)seen[m]=0;
+  const far=nh.filter(([m,t])=>t>=3&&mx[m]>WM_KEY_FRINGE).map(([m])=>mx[m]).sort((a,b)=>a-b),med=far.length?far[far.length>>1]:0;
+  const thr=med*.8,fr=nh.filter(([m,t])=>t<=3&&mx[m]<thr).map(([m])=>m),R=nh.filter(([m])=>mx[m]>=thr).map(([m])=>m);
+  if(far.length<8||med<WM_KEY_RING){if(edge)for(const k of [...blob,...fr])key[k]=7;continue}// dark surroundings: a real feature, except in a coverage-edge tile (dark edge water: keyed)
+  const [r,g,bb]=med3(R),F=[...blob,...fr];for(const k of F){d[k*4]=r;d[k*4+1]=g;d[k*4+2]=bb;d[k*4+3]=255;seen[k]=1}
+  // dim ring: pixels of 9…WM_KEY_DIM still connected to the filled spot, up to WM_KEY_RINGPX px out, get the same surround colour
+  for(let s0=0,s1=F.length,st=1;st<=WM_KEY_RINGPX&&s1>s0;st++){for(let j=s0;j<s1;j++)nb(F[j],k=>{if(!seen[k]&&!key[k]&&d[k*4+3]>=16&&mx[k]<=WM_KEY_DIM&&mx[k]<thr){seen[k]=1;F.push(k);d[k*4]=r;d[k*4+1]=g;d[k*4+2]=bb;d[k*4+3]=255}});s0=s1;s1=F.length}
+  filled+=F.length;for(const k of F)mx[k]=Math.max(r,g,bb)}
+ return filled};
+ // a tile whose black dropouts sat in bright surroundings (surf) also has JPEG-smeared dropouts with no ≤8 core: second pass at WM_KEY_FRINGE
+ if(pass(T)>0&&T<WM_KEY_FRINGE)pass(WM_KEY_FRINGE);
+ if(edge){// NAIP's edge is a lace of dropouts in bright surf: a pixel-exact key would show EOX's dark water through every gap (dark specks).
+  // Majority filter over a (2·WM_KEY_SMOOTH+1)² window: mostly-keyed neighbourhoods become fully transparent, mostly-imagery ones become
+  // opaque, with former no-data pixels painted the window's mean imagery colour. Land, which has no keyed pixels near it, is unchanged.
+  const dirty=new Uint8Array(n),dq=[];for(let i=0;i<n;i++)if(key[i]||d[i*4+3]<16||mx[i]<=WM_KEY_BLACK){dirty[i]=1;dq.push(i)}// + JPEG-ringing fringe (≤60) within 3 px
+  for(let r=2,a=0,b=dq.length;r<=4;r++){for(let j=a;j<b;j++)nb(dq[j],k=>{if(!dirty[k]&&mx[k]<=60){dirty[k]=r;dq.push(k)}});a=b;b=dq.length}
+  const R=WM_KEY_SMOOTH,W1=w+1,S=new Float64Array(W1*(h+1)*4);for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x,o=((y+1)*W1+x+1)*4,u=(y*W1+x+1)*4,l=((y+1)*W1+x)*4,ul=(y*W1+x)*4;
+   const k=dirty[i]?1:0,v=k?0:1;const add=[k,v*d[i*4],v*d[i*4+1],v*d[i*4+2]];for(let c4=0;c4<4;c4++)S[o+c4]=add[c4]+S[u+c4]+S[l+c4]-S[ul+c4]}
+  const box=(x0,y0,x1,y1,c4)=>S[(y1*W1+x1)*4+c4]-S[(y0*W1+x1)*4+c4]-S[(y1*W1+x0)*4+c4]+S[(y0*W1+x0)*4+c4];
+  for(let y=0;y<h;y++)for(let x=0;x<w;x++){const i=y*w+x,x0=Math.max(0,x-R),y0=Math.max(0,y-R),x1=Math.min(w,x+R+1),y1=Math.min(h,y+R+1),A=(x1-x0)*(y1-y0),kk=box(x0,y0,x1,y1,0);
+   const was=dirty[i];if(kk*2>A){if(!was)key[i]=8;else key[i]=key[i]||8}else if(was){const m=A-kk;if(m>0){d[i*4]=box(x0,y0,x1,y1,1)/m;d[i*4+1]=box(x0,y0,x1,y1,2)/m;d[i*4+2]=box(x0,y0,x1,y1,3)/m;d[i*4+3]=255;key[i]=0}}}}
+ if(edge){// holes left inside the imagery (not touching the tile border, < WM_KEY_HOLE px) would show EOX's dark water as dark specks: paint them
+  const hl=new Uint8Array(n);for(let i=0;i<n;i++){if(hl[i]||!(key[i]||d[i*4+3]<16))continue;const hole=[i];hl[i]=1;let border=false;
+   for(let j=0;j<hole.length;j++){const k=hole[j],x=k%w;if(x===0||x===w-1||k<w||k>=n-w)border=true;nb(k,m=>{if(!hl[m]&&(key[m]||d[m*4+3]<16)){hl[m]=1;hole.push(m)}})}
+   if(border||hole.length>=WM_KEY_HOLE)continue;let r=0,g=0,bb=0,cn=0;for(const k of hole)nb(k,m=>{if(!key[m]&&d[m*4+3]>=16){r+=d[m*4];g+=d[m*4+1];bb+=d[m*4+2];cn++}});
+   if(!cn)continue;for(const k of hole){key[k]=0;d[k*4]=r/cn;d[k*4+1]=g/cn;d[k*4+2]=bb/cn;d[k*4+3]=255}}}
+ for(let i=0;i<n;i++)if(key[i]||d[i*4+3]<16){d[i*4+3]=0;c++}
+ if(c&&c<n){// feather: opaque imagery within WM_KEY_FEATHER px of no-data fades out (alpha ×1/4, 2/4, 3/4), so EOX water blends in without a hard rim
+  const dist=new Uint8Array(n);let fq=[];for(let i=0;i<n;i++)if(d[i*4+3]===0){dist[i]=255;fq.push(i)}
+  for(let r=1;r<=WM_KEY_FEATHER;r++){const nq=[];for(const i of fq)nb(i,k=>{if(!dist[k]&&d[k*4+3]>0){dist[k]=r;nq.push(k)}});fq=nq}
+  for(let i=0;i<n;i++)if(dist[i]&&dist[i]<255)d[i*4+3]=Math.round(d[i*4+3]*dist[i]/(WM_KEY_FEATHER+1))}
+ return c/n}
+let WmUsgs=null;// Leaflet loads lazily, so the class is made on first use
+/* Keying off the main thread: ONE inline worker (Blob URL built from wmNoData's own source + the WM_KEY_* values) with a FIFO queue.
+   Worker path: fetch (CORS) -> createImageBitmap -> transfer bitmap -> worker draws it on an OffscreenCanvas, getImageData, wmNoData ->
+   pixel buffer transferred back -> putImageData on the tile canvas. Tiles unloaded before the reply: fetch aborted, queued job cancelled in the
+   worker (it runs one job per task so a cancel can overtake queued work), late replies dropped. No Worker / OffscreenCanvas /
+   createImageBitmap, a worker that fails to start or errors: the main-thread path (Image -> canvas -> wmNoData) runs instead, same pixels. */
+const WM_KEYC={WM_KEY_BLACK,WM_KEY_FRINGE,WM_KEY_HALO,WM_KEY_GATE,WM_KEY_CRUMB,WM_KEY_RING,WM_KEY_SMOOTH,WM_KEY_HOLE,WM_KEY_DIM,WM_KEY_RINGPX,WM_KEY_FEATHER};
+function wmKeyWorkerMain(){const Q=[];let busy=false;
+ const run=()=>{const j=Q.shift();if(!j){busy=false;return}try{const c=new OffscreenCanvas(j.bm.width,j.bm.height),g=c.getContext("2d",{willReadFrequently:true});g.drawImage(j.bm,0,0);j.bm.close();
+   const D=g.getImageData(0,0,c.width,c.height),t0=performance.now(),f=wmNoData(D.data,c.width,c.height);self.postMessage({id:j.id,f,ms:performance.now()-t0,buf:D.data.buffer},[D.data.buffer])}
+  catch(err){self.postMessage({id:j.id,err:String(err&&err.message||err)})}if(Q.length)setTimeout(run,0);else busy=false};
+ self.onmessage=e=>{const m=e.data;if(m.cancel){const k=Q.findIndex(j=>j.id==m.cancel);if(k>=0){Q.splice(k,1)[0].bm.close();self.postMessage({id:m.cancel,cancelled:1})}return}
+  Q.push(m);if(!busy){busy=true;setTimeout(run,0)}}}
+let WmKW=null;
+function wmKW(){if(WmKW)return WmKW.broken?null:WmKW;WmKW={jobs:new Map(),seq:0,broken:false,stats:{posted:0,done:0,cancelled:0,dropped:0,fallback:0}};WM.kw=WmKW;
+ if(window.__wmNoWorker||typeof Worker!="function"||typeof OffscreenCanvas!="function"||typeof createImageBitmap!="function"||typeof fetch!="function"){WmKW.broken=true;WmKW.why="unsupported";return null}
+ try{const src="const "+Object.entries(WM_KEYC).map(([k,v])=>k+"="+v).join(",")+";\n"+wmNoData.toString()+"\n("+wmKeyWorkerMain.toString()+")()";
+  const u=URL.createObjectURL(new Blob([src],{type:"text/javascript"})),w=new Worker(u);WmKW.w=w;setTimeout(()=>URL.revokeObjectURL(u),3e4);
+  w.onmessage=e=>{const m=e.data,j=WmKW.jobs.get(m.id);if(!j)return;WmKW.jobs.delete(m.id);if(m.cancelled)WmKW.stats.cancelled++;else WmKW.stats.done++;j.res(m)};
+  w.onerror=e=>{if(e&&e.preventDefault)e.preventDefault();wmKWfail("error")};w.onmessageerror=()=>wmKWfail("messageerror")}
+ catch(e){WmKW.broken=true;WmKW.why="start: "+e.message;return null}return WmKW}
+function wmKWfail(why){if(!WmKW||WmKW.broken)return;WmKW.broken=true;WmKW.why=why;try{WmKW.w.terminate()}catch(e){}const J=[...WmKW.jobs.values()];WmKW.jobs.clear();for(const j of J)j.res(null)}// pending tiles redo on the main thread
+function wmUsgsLayer(o){wmUsgsCss();WmUsgs=WmUsgs||L.GridLayer.extend({createTile(co,done){const s=this.getTileSize(),t=document.createElement("canvas"),url=L.Util.template(WM_USGS,co);t.width=s.x;t.height=s.y;
+ const hide=why=>{t.style.visibility="hidden";t.dataset.nodata=why},fail=()=>{hide("error");done(new Error("USGS tile unavailable"),t)};
+ const show=(D,f,kms,path,m0)=>{t.dataset.cut=f.toFixed(3);t.dataset.path=path;t.dataset.kms=kms.toFixed(2);
+  if(f>.995)hide("empty");else t.getContext("2d",{willReadFrequently:true}).putImageData(D,0,0);t.dataset.mms=(performance.now()-m0).toFixed(2);done(null,t)};// keyed and/or filled pixels
+ const main=()=>{if(t._wmGone)return;const im=new Image();im.crossOrigin="anonymous";
+  im.onload=()=>{if(t._wmGone)return;const m0=performance.now();try{const g=t.getContext("2d",{willReadFrequently:true});g.drawImage(im,0,0,s.x,s.y);const D=g.getImageData(0,0,s.x,s.y),k0=performance.now(),f=wmNoData(D.data,s.x,s.y);
+    show(D,f,performance.now()-k0,"main",m0)}catch(e){hide("canvas");done(null,t)}};
+  im.onerror=fail;im.src=url};
+ const K=wmKW();if(!K){main();return t}const ac=new AbortController();t._wmAbort=ac;
+ fetch(url,{mode:"cors",credentials:"omit",signal:ac.signal}).then(r=>{if(!r.ok)throw new Error("HTTP "+r.status);return r.blob()}).then(b=>createImageBitmap(b)).then(bm=>{const K2=wmKW();
+   if(t._wmGone||!K2){bm.close();return t._wmGone?{gone:1}:null}return new Promise(res=>{const id=++K2.seq;K2.jobs.set(id,{res});t._wmJob=id;K2.stats.posted++;K2.w.postMessage({id,bm},[bm])})})
+  .then(m=>{if(t._wmGone||(m&&(m.gone||m.cancelled))){if(WmKW)WmKW.stats.dropped++;return}if(!m){WmKW.stats.fallback++;main();return}if(m.err){fail();return}
+   const m0=performance.now();show(new ImageData(new Uint8ClampedArray(m.buf),s.x,s.y),m.f,m.ms,"worker",m0)})
+  .catch(e=>{if(t._wmGone||e.name=="AbortError")return;fail()});return t}});
+ const lay=new WmUsgs(o);lay.on("tileunload",e=>{const t=e.tile;t._wmGone=1;if(t._wmAbort)t._wmAbort.abort();if(t._wmJob&&WmKW&&!WmKW.broken&&WmKW.jobs.has(t._wmJob))WmKW.w.postMessage({cancel:t._wmJob})});return lay}
+/* v0.9.32: full-screen wind map (Wind change 7). An expand button in the map's top-right corner turns the whole #windmap card into a
+   fixed overlay (position:fixed, inset 0, 100dvh with a 100vh fallback, safe-area padding) that keeps the hour label, time slider with
+   ◀ ▶, and tap readout along the bottom. Where the Fullscreen API exists the card also goes native full screen; iPhone Safari has none,
+   so the CSS overlay works by itself. Exit: the same button, Esc, browser Back (one history entry pushed on enter), or leaving native
+   full screen with a system gesture. Body scroll is locked while expanded. The map keeps its centre, zoom and selected hour, and the wind
+   canvas is resized at the device pixel ratio via map.invalidateSize() (Leaflet "resize" -> WindFlow reseed). Resizing for full screen
+   goes through the pan path only: the moveend check is skipped while WM.fsSizing is set, then area() asks wmEnsureArea once (see below). The kt legend moves down below the button (top 56px).
+   Short screens (≤500px tall, phone landscape) also drop the hour label row, the slider help line and the empty-readout hint. */
+const WM_FS_CSS="#wmWrap #wmLeg{top:56px}"+
+ "#wmFsBtn{position:absolute;top:6px;right:6px;z-index:700;width:44px;height:44px;padding:0;margin:0;display:flex;align-items:center;justify-content:center;background:rgba(10,20,30,.78);color:#fff;border:1px solid rgba(255,255,255,.28);border-radius:8px;cursor:pointer;touch-action:manipulation;-webkit-tap-highlight-color:transparent}"+
+ "#wmFsBtn:focus-visible{outline:2px solid #4fc3f7;outline-offset:2px}#wmFsBtn svg{width:22px;height:22px;pointer-events:none}"+
+ "#windmap{--wm-sa-t:env(safe-area-inset-top,0px);--wm-sa-r:env(safe-area-inset-right,0px);--wm-sa-b:env(safe-area-inset-bottom,0px);--wm-sa-l:env(safe-area-inset-left,0px)}"+
+ "#windmap.wmFsOn{position:fixed;inset:0;z-index:100000;width:auto;height:100vh;height:100dvh;max-width:none;max-height:none;margin:0;border:0;border-radius:0;display:flex!important;flex-direction:column;overflow:hidden;overscroll-behavior:contain;background:var(--card);"+
+ "padding:calc(6px + var(--wm-sa-t)) calc(6px + var(--wm-sa-r)) calc(6px + var(--wm-sa-b)) calc(6px + var(--wm-sa-l))}"+
+ "#windmap.wmFsOn>h2,#windmap.wmFsOn>#wmModel{display:none}#windmap.wmFsOn #wmWrap{flex:1 1 auto;height:auto;min-height:120px;border-radius:8px}"+
+ "#windmap.wmFsOn>.wmBar,#windmap.wmFsOn>#wmDays,#windmap.wmFsOn>#wmRead{flex:none}#windmap.wmFsOn>.wmBar{margin:6px 0 0}"+
+ "#windmap.wmFsOn>#wmRead{max-height:4.4em;overflow:auto;font-size:13px;margin-top:2px}#windmap.wmFsOn>#wmRead:empty{display:none}"+
+ "@media (max-height:500px){#windmap.wmFsOn>.wmBar,#windmap.wmFsOn .wt-help,#windmap.wmFsOn>#wmRead:not(:has(#wmEx)){display:none}#windmap.wmFsOn>#wmRead{max-height:2.8em}}#windmap::backdrop{background:#0b1622}"+
+ "html.wmFsLock,html.wmFsLock body{overflow:hidden!important;overscroll-behavior:none}html.wmFsLock body{position:fixed;left:0;right:0;width:100%}";
+const WM_FS_ICON={on:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5"/></svg>',
+ off:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M9 4v5H4M15 4v5h5M9 20v-5H4M15 20v-5h5"/></svg>'};
+function wmFsInit(){if(WM.fs)return;const st=document.createElement("style");st.id="wm-fs-css";st.textContent=WM_FS_CSS;document.head.appendChild(st);
+ const sec=$("windmap"),b=document.createElement("button");b.id="wmFsBtn";b.type="button";$("wmWrap").appendChild(b);
+ const F={on:false,native:false,y:0,skipPop:false,sized:0,enter,exit};WM.fs=F;
+ const fsEl=()=>document.fullscreenElement||document.webkitFullscreenElement||null;
+ function label(){b.setAttribute("aria-label",F.on?"Exit full screen":"Full screen map");b.title=F.on?"Exit full screen (Esc)":"Full screen map";b.setAttribute("aria-pressed",F.on?"true":"false");b.innerHTML=F.on?WM_FS_ICON.off:WM_FS_ICON.on}
+ function resize(){if(!WM.map||!WM.map.getContainer().clientWidth)return;let c=WM.map.getCenter();const z=WM.map.getZoom();// same centre + zoom, no wind fetch
+  if(F.got&&F.got.equals(c)&&F.z==z)c=F.want;// not moved since our last resize: reuse the exact centre (no sub-pixel drift across cycles)
+  WM.fsSizing=1;try{WM.map.invalidateSize({pan:false});WM.map.setView(c,z,{animate:false})}finally{WM.fsSizing=0}F.want=c;F.z=z;F.got=WM.map.getCenter();F.sized++;area()}
+ // wind for the resized view through the normal pan path: if the view's centre now maps to another area AND the view leaves the loaded
+ // grid, wmEnsureArea loads the standard 11×11 / 175 mi area for that centre (NCEP grid + ECMWF reference, rotation-checked like any pan).
+ // Same centre key (e.g. never panned): a reload would be the same area, so nothing is fetched; a wide desktop may then show an edge band.
+ function area(){const A=WM.area;if(!A||F.pend)return;const c=WM.map.getCenter();if(wmAreaFor(c.lat,c.lng).key==A.A.key)return;F.areaCalls=(F.areaCalls||0)+1;
+  F.pend=Promise.resolve(wmEnsureArea()).finally(()=>{F.pend=null})}
+ function enter(){if(F.on)return;F.on=true;F.y=scrollY;
+  try{history.pushState(Object.assign({},history.state,{wmFs:1}),"")}catch(e){}// before the scroll lock, so Back restores the real scroll position
+  document.documentElement.classList.add("wmFsLock");document.body.style.top=-F.y+"px";sec.classList.add("wmFsOn");label();
+  const rq=sec.requestFullscreen||sec.webkitRequestFullscreen;F.native=false;
+  if(rq){try{const p=rq.call(sec,{navigationUI:"hide"});F.native=true;if(p&&p.then)p.then(drop,()=>{F.native=false})}catch(e){F.native=false}}
+  resize();requestAnimationFrame(()=>F.on&&resize())}
+ function exit(src){if(!F.on)return;F.on=false;F.src=src;sec.classList.remove("wmFsOn");document.documentElement.classList.remove("wmFsLock");document.body.style.top="";scrollTo(0,F.y);label();
+  if(fsEl()){const ex=document.exitFullscreen||document.webkitExitFullscreen;try{const p=ex&&ex.call(document);if(p&&p.catch)p.catch(()=>{})}catch(e){}}F.native=false;
+  if(src!="back"&&history.state&&history.state.wmFs){F.skipPop=true;history.back()}// drop our history entry so Back still means Back
+  resize();requestAnimationFrame(()=>!F.on&&resize());if(src!="back"&&src!="view")b.focus({preventScroll:true})}
+ b.addEventListener("click",()=>F.on?exit("icon"):enter());
+ document.addEventListener("keydown",e=>{if(F.on&&e.key=="Escape"){e.preventDefault();exit("esc")}});
+ addEventListener("popstate",()=>{const own=F.skipPop||F.on;if(F.skipPop)F.skipPop=false;else if(F.on)exit("back");
+  if(own){const y=F.y;scrollTo(0,y);requestAnimationFrame(()=>{if(!F.on)scrollTo(0,y)})}});// the browser's own scroll restoration for our entry must not move the page
+ // double-tap race (Skeptic 932): exit can run before a pending requestFullscreen resolves -> leave native full screen if we are not expanded
+ function drop(){if(fsEl()&&!F.on){const ex=document.exitFullscreen||document.webkitExitFullscreen;try{const p=ex&&ex.call(document);if(p&&p.catch)p.catch(()=>{})}catch(e){}}}
+ const onFs=()=>{if(fsEl()&&!F.on){drop();return}if(!fsEl()&&F.on&&F.native)exit("system");else if(F.on)resize()};// system gesture / browser UI left native full screen
+ document.addEventListener("fullscreenchange",onFs);document.addEventListener("webkitfullscreenchange",onFs);
+ const onRs=()=>{if(F.on)resize()};addEventListener("resize",onRs);addEventListener("orientationchange",onRs);if(window.visualViewport)visualViewport.addEventListener("resize",onRs);
+ label()}
 async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLeaflet()}catch(e){wmMsg("Map unavailable: "+e.message+". The hourly wind list below still works.",true);return}
  const{lat,lon}=S.loc,key=lat+","+lon;
- if(!WM.map){WM.map=L.map("wmMap",{zoomControl:true,attributionControl:true,minZoom:5,maxZoom:15});
+ if(!WM.map){WM.map=L.map("wmMap",{zoomControl:true,attributionControl:true,minZoom:5,maxZoom:16});
   // EOxCloudless Sentinel-2 2025 mosaic (free for non-commercial use, CC BY-NC-SA 4.0, attribution required). Real ocean pixels at every zoom,
-  // unlike USGS imagery, which has black no-data blocks offshore at zoom 9–10.
-  L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:15,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
-  WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>wmEnsureArea());WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
+  // unlike USGS imagery, which has black no-data blocks offshore. EOX stays underneath at every zoom as the fallback for the USGS layer.
+  L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:16,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
+  wmUsgsLayer({minZoom:14,maxZoom:16,maxNativeZoom:16,zIndex:2,className:"wmTiles wmUsgs",attribution:'Imagery z14+: <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map">USGS The National Map</a>'}).addTo(WM.map);
+  WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>{if(!WM.fsSizing)wmEnsureArea()});WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
   WM.ds=WindTimeline.create($("wmDays"),{hours:[],tz:WM_TZ,getHours:()=>WM.area?WM.area.H.map(h=>({t:h.t/1000})):[],onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
-  $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("")}
+  $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("");wmFsInit()}
  WM.map.invalidateSize();
  if(key!=WM.locKey||force){WM.locKey=key;const dl=50/69,dn=dl/Math.cos(lat*Math.PI/180);WM.tap=null;WM.stripDone=0;if(WM.tapMk){WM.tapMk.remove();WM.tapMk=null}$("wmRead").innerHTML='<span class="mut">Tap the map for speed, gusts and direction at that point.</span>';
   WM.map.fitBounds([[lat-dl,lon-dn],[lat+dl,lon+dn]]);if(WM.mk)WM.mk.setLatLng([lat,lon]);else{WM.mk=L.marker([lat,lon],{title:S.loc.name}).addTo(WM.map);WM.mk.on("click",()=>{const q=WM.mk.getLatLng();wmReadout(q.lat,q.lng)})}// tapping the spot marker gives the readout there
   WM.mk.bindTooltip(S.loc.name||"Spot");if(force)WM.cache.clear(),WM.area=null;await wmEnsureArea();if(!WM.stripDone&&WM.area){WM.stripDone=1;wmStrip()}}
  else if(WM.area){WM.wf.start()}}
 
-function wmHide(){if(WM.wf)WM.wf.stop()}
+function wmHide(){if(WM.fs&&WM.fs.on)WM.fs.exit("view");if(WM.wf)WM.wf.stop()}
 
 S.buoy={};$("build").textContent="Brinecast "+BUILD;renderLog();renderFavs();renderGo();show(new URLSearchParams(location.search).get("view")||LS.get("view","weather"));
 const qp=new URLSearchParams(location.search);

@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.32 · Nov 13 2026";// bump on every push
+const BUILD="v0.9.33 · Nov 13 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1552,71 +1552,94 @@ function bindGo(){const el=$("gonogo");el.querySelectorAll("[data-prof]").forEac
   if(typeof module!=='undefined'&&module.exports) module.exports=api; else root.TapCheck=api;
 })(this);
 
-/* Continuous forecast timeline. Drop-in DayStrip API; all selection still goes through wmSetHour.
-   The old DayStrip is left unused above to keep the protected lines 1–1218 byte-identical. */
+/* Day-by-day forecast timeline (v0.9.33). Drop-in DayStrip API; all selection still goes through wmSetHour (onHour).
+   ◀ ▶ (and ← → / Page Up/Down) change the day at the same Eastern clock hour; the slider between them covers only the selected
+   day, 00:00 to 23:00 Eastern on the day's real hours (23 on spring-forward, 25 on fall-back). Hours the forecast doesn't have on a
+   partial first/last day are greyed and can't be picked (taps clamp to the nearest available hour). ↑ ↓ step one hour and cross
+   midnight into the adjacent day. The old DayStrip is left unused above to keep the protected lines 1–1218 byte-identical. */
 const WindTimeline=(()=>{
  const CSS=`#wmDays{padding:0;margin:4px -4px 6px}.wt-root{color:#e8eef5;font:12px/1.25 system-ui,sans-serif;min-width:0;overflow:hidden}
- .wt-controls{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:2px;align-items:start}.wt-track{height:108px;width:100%;min-width:0;position:relative;outline:none;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer}
- .wt-track:focus-visible{box-shadow:inset 0 0 0 2px #5aa9e6;border-radius:8px}.wt-rail,.wt-fill{position:absolute;left:0;top:56px;height:8px;border-radius:4px;background:#31516d;pointer-events:none}.wt-rail{width:100%}.wt-fill{background:#5aa9e6}
- .wt-tick{position:absolute;top:66px;height:4px;border-left:1px solid #7a92a8;pointer-events:none}.wt-major{top:53px;height:28px;border-left:2px solid #c1d3e4}
- .wt-day{position:absolute;top:85px;white-space:nowrap;transform:translateX(-50%);pointer-events:none;font-size:12px;font-weight:650}
- .wt-thumb{position:absolute;top:38px;width:44px;height:44px;transform:translateX(-50%);touch-action:none;cursor:ew-resize;z-index:3}.wt-dot{position:absolute;top:12px;width:20px;height:20px;transform:translateX(-50%);box-sizing:border-box;border:3px solid #fff;border-radius:50%;background:#5aa9e6;box-shadow:0 1px 5px #0009;pointer-events:none}
- .wt-tip{position:absolute;top:5px;transform:translateX(-50%);padding:4px 6px;background:#1f3550;border:1px solid #42617e;border-radius:6px;white-space:nowrap;font-weight:650;pointer-events:none;z-index:4}
- .wt-now{position:absolute;top:35px;height:34px;border-left:2px solid #f2a33a;pointer-events:none;z-index:2}.wt-now span{position:absolute;top:36px;left:-1px;transform:translateX(-50%);font-size:10px;font-weight:700;color:#f2a33a}
- .wt-step{width:44px;height:44px;min-width:44px;margin-top:38px;padding:0;background:transparent;color:#c1d3e4;border:1px solid #31516d;border-radius:8px;font-size:15px;position:relative;z-index:5}.wt-step:disabled{opacity:.28;cursor:default}.wt-step:focus-visible{outline:2px solid #5aa9e6;outline-offset:-2px}
+ .wt-head{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:4px;align-items:end;padding:0 0 2px}
+ .wt-cur{text-align:center;font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.wt-cur .wt-ctime{font-weight:600;color:#c1d3e4}
+ .wt-adj{font-size:10px;color:#8fa6bb;white-space:nowrap;text-align:center}.wt-adj:empty{visibility:hidden}
+ .wt-controls{display:grid;grid-template-columns:44px minmax(0,1fr) 44px;gap:4px;align-items:start}.wt-track{height:80px;width:100%;min-width:0;position:relative;outline:none;touch-action:pan-y;user-select:none;-webkit-user-select:none;cursor:pointer}
+ .wt-track:focus-visible{box-shadow:inset 0 0 0 2px #5aa9e6;border-radius:8px}.wt-rail,.wt-avail,.wt-fill{position:absolute;left:0;top:42px;height:8px;border-radius:4px;pointer-events:none}
+ .wt-rail{width:100%;background:repeating-linear-gradient(135deg,#1f3346 0 4px,#26394d 4px 8px);opacity:.9}.wt-avail{background:#31516d}.wt-fill{background:#5aa9e6}
+ .wt-tick{position:absolute;top:52px;height:5px;border-left:1px solid #7a92a8;pointer-events:none}.wt-major{top:38px;height:22px;border-left:2px solid #c1d3e4}.wt-tick.wt-off{border-color:#41576b}
+ .wt-hl{position:absolute;top:62px;white-space:nowrap;transform:translateX(-50%);pointer-events:none;font-size:11px;font-weight:650;color:#c1d3e4}.wt-hl.wt-off{color:#5d7488}
+ .wt-thumb{position:absolute;top:24px;width:44px;height:44px;transform:translateX(-50%);touch-action:none;cursor:ew-resize;z-index:3}.wt-dot{position:absolute;top:12px;width:20px;height:20px;transform:translateX(-50%);box-sizing:border-box;border:3px solid #fff;border-radius:50%;background:#5aa9e6;box-shadow:0 1px 5px #0009;pointer-events:none}
+ .wt-tip{position:absolute;top:2px;transform:translateX(-50%);padding:2px 6px;background:#1f3550;border:1px solid #42617e;border-radius:6px;white-space:nowrap;font-weight:650;pointer-events:none;z-index:4}
+ .wt-now{position:absolute;top:21px;height:34px;border-left:2px solid #f2a33a;pointer-events:none;z-index:2}.wt-now span{position:absolute;top:-1px;left:3px;font-size:10px;font-weight:700;color:#f2a33a}
+ .wt-step{width:44px;height:44px;min-width:44px;margin-top:24px;padding:0;background:transparent;color:#c1d3e4;border:1px solid #31516d;border-radius:8px;font-size:15px;position:relative;z-index:5}.wt-step:disabled{opacity:.28;cursor:default}.wt-step:focus-visible{outline:2px solid #5aa9e6;outline-offset:-2px}
  .wt-help{padding:2px 8px 6px;color:#a8bbce;font-size:10px;text-align:center}.wt-drag .wt-dot{background:#92d5ff;box-shadow:0 0 0 5px #5aa9e633}`;
  function create(container,opts={}){
   if(!document.getElementById('wind-timeline-css')){const s=document.createElement('style');s.id='wind-timeline-css';s.textContent=CSS;document.head.appendChild(s)}
-  const tz=opts.tz||'America/New_York',dayFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short',day:'numeric'}),
-   weekFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,weekday:'short'}),hourFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',hourCycle:'h23'}),
-   timeFmt=new Intl.DateTimeFormat('en-US',{timeZone:tz,hour:'numeric',timeZoneName:'short'}),keyFmt=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'});
+  const tz=opts.tz||'America/New_York',F=o=>new Intl.DateTimeFormat('en-US',Object.assign({timeZone:tz},o)),
+   longFmt=F({weekday:'short',month:'short',day:'numeric'}),adjFmt=F({weekday:'short',day:'numeric'}),hourFmt=F({hour:'numeric',hourCycle:'h23'}),
+   timeFmt=F({hour:'numeric',timeZoneName:'short'}),partFmt=F({year:'numeric',month:'numeric',day:'numeric',hour:'numeric',minute:'numeric',second:'numeric',hourCycle:'h23'}),
+   keyFmt=new Intl.DateTimeFormat('en-CA',{timeZone:tz,year:'numeric',month:'2-digit',day:'2-digit'});
   const el=document.createElement('div');el.className='wt-root';
-  el.innerHTML='<div class="wt-controls"><button class="wt-step wt-prev" aria-label="Previous day" title="Previous day" type="button" disabled>◀</button><div class="wt-track" role="slider" tabindex="0" aria-label="Wind forecast time" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown Home End" aria-orientation="horizontal" aria-disabled="true"><div class="wt-rail"></div><div class="wt-fill"></div><div class="wt-ticks" aria-hidden="true"></div><div class="wt-now" hidden><span>now</span></div><div class="wt-thumb" aria-hidden="true"><i class="wt-dot"></i></div><div class="wt-tip" aria-hidden="true">Loading forecast…</div></div><button class="wt-step wt-next" aria-label="Next day" title="Next day" type="button" disabled>▶</button></div><div class="wt-help">◀ ▶ / ← →: 1 day · ↑ ↓: 1 hour · drag for exact hour · Eastern time</div>';
+  el.innerHTML='<div class="wt-head"><span class="wt-adj wt-adjprev" aria-hidden="true"></span><div class="wt-cur" aria-live="polite"><b class="wt-day"></b> <span class="wt-ctime"></span></div><span class="wt-adj wt-adjnext" aria-hidden="true"></span></div>'+
+   '<div class="wt-controls"><button class="wt-step wt-prev" aria-label="Previous day" title="Previous day (←)" type="button" disabled>◀</button><div class="wt-track" role="slider" tabindex="0" aria-label="Wind forecast hour" aria-keyshortcuts="ArrowLeft ArrowRight ArrowUp ArrowDown PageUp PageDown Home End" aria-orientation="horizontal" aria-disabled="true"><div class="wt-rail"></div><div class="wt-avail"></div><div class="wt-fill"></div><div class="wt-ticks" aria-hidden="true"></div><div class="wt-now" hidden><span>now</span></div><div class="wt-thumb" aria-hidden="true"><i class="wt-dot"></i></div><div class="wt-tip" aria-hidden="true">Loading forecast…</div></div><button class="wt-step wt-next" aria-label="Next day" title="Next day (→)" type="button" disabled>▶</button></div><div class="wt-help">◀ ▶ / ← →: day · slider / ↑ ↓: hour · Eastern time</div>';
   container.replaceChildren(el);
-  const track=el.querySelector('.wt-track'),fill=el.querySelector('.wt-fill'),ticks=el.querySelector('.wt-ticks'),thumb=el.querySelector('.wt-thumb'),dot=el.querySelector('.wt-dot'),tip=el.querySelector('.wt-tip'),now=el.querySelector('.wt-now'),prev=el.querySelector('.wt-prev'),next=el.querySelector('.wt-next');
-  let hours=[],sel=-1,selected=null,width=0,drag=null,destroyed=false;
-  const stamp=t=>t>1e12?t/1000:t,clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
-  const dayLabel=t=>{const p=Object.fromEntries(dayFmt.formatToParts(t*1000).map(x=>[x.type,x.value]));return p.weekday+' '+p.day};
-  const label=t=>dayLabel(t)+' · '+timeFmt.format(t*1000);
-  const start=()=>hours[0].t,end=()=>hours[hours.length-1].t;
-  const x=t=>end()==start()?0:(t-start())/(end()-start())*width;
-  // Day step: same local wall-clock hour on the adjacent calendar day (23/25 real h across DST); if that hour does not exist
-  // (spring forward) or is outside the forecast, the forecast hour nearest to exactly ±24 real hours (clamps at the ends).
-  // A repeated fall-back hour picks the copy nearest to ±24 real hours.
-  function dayStep(dir){if(sel<0)return sel;const t=hours[sel].t,T=t+dir*86400,k0=keyFmt.format(t*1000),hr=hourFmt.format(t*1000),d=new Date(k0+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+dir);
-   const k1=d.toISOString().slice(0,10);let best=-1;hours.forEach((h,i)=>{if(keyFmt.format(h.t*1000)===k1&&hourFmt.format(h.t*1000)===hr&&(best<0||Math.abs(h.t-T)<Math.abs(hours[best].t-T)))best=i});
-   return best>=0?best:near(T)}
-  function near(t){let k=0;for(let i=1;i<hours.length;i++)if(Math.abs(hours[i].t-t)<Math.abs(hours[k].t-t))k=i;return k}
-  function tooltip(){if(sel<0||!width)return;const r=el.getBoundingClientRect(),t=track.getBoundingClientRect(),half=tip.offsetWidth/2+3;tip.style.left=clamp(x(hours[sel].t),r.left-t.left+half,r.right-t.left-half)+'px'}
-  function markNow(){if(!hours.length)return;const t=Date.now()/1000;now.hidden=t<start()||t>end();if(!now.hidden){now.style.left=x(t)+'px';now.title='Now: '+label(t)}}
-  function choose(k,emit=false){if(!hours.length)return;k=clamp(k,0,hours.length-1);const changed=k!==sel;sel=k;selected=hours[k].t;
-   track.setAttribute('aria-valuenow',k);track.setAttribute('aria-valuetext',label(selected));track.dataset.time=selected;
-   const px=x(selected),hit=clamp(px,22,Math.max(22,width-22));thumb.style.left=hit+'px';dot.style.left=(px-hit+22)+'px';fill.style.width=px+'px';tip.textContent=label(selected);tooltip();
-   prev.disabled=k===0;next.disabled=k===hours.length-1;if(emit&&changed&&opts.onHour)opts.onHour(selected)}
-  function layout(){if(!hours.length)return;width=track.clientWidth;if(!width)return;ticks.replaceChildren();const days=[],step=(end()-start())/3600;
-   hours.forEach(h=>{const hr=+hourFmt.format(h.t*1000),major=hr===0;if(!major&&(hr%6||width/Math.max(1,step)*6<12))return;
-    const px=x(h.t),tick=document.createElement('i');tick.className='wt-tick'+(major?' wt-major':' wt-minor');tick.style.left=Math.min(width-2,px)+'px';ticks.appendChild(tick);
-    if(major){const text=document.createElement('span');text.className='wt-day';text.dataset.time=h.t;text.textContent=width/7>=64?dayLabel(h.t):weekFmt.format(h.t*1000);ticks.appendChild(text);
-     const half=text.offsetWidth/2+1,cx=clamp(px,half,width-half);text.style.left=cx+'px';days.push({text,left:cx-half,right:cx+half,cx})}});
-   let stride=1;while(stride<days.length){let last=null,overlap=false;for(let i=0;i<days.length;i+=stride){const d=days[i];if(last&&(d.left<last.right+6||d.cx-last.cx<44)){overlap=true;break}last=d}if(!overlap)break;stride*=2}
-   days.forEach((d,i)=>d.text.hidden=i%stride!==0);track.dataset.labelStride=stride;track.dataset.rangeStart=start();track.dataset.rangeEnd=end();
-   choose(sel<0?near(Date.now()/1000):sel);markNow()}
+  const q=s=>el.querySelector(s),track=q('.wt-track'),rail=q('.wt-rail'),avail=q('.wt-avail'),fill=q('.wt-fill'),ticks=q('.wt-ticks'),thumb=q('.wt-thumb'),dot=q('.wt-dot'),tip=q('.wt-tip'),now=q('.wt-now'),
+   prev=q('.wt-prev'),next=q('.wt-next'),curDay=q('.wt-cur .wt-day'),curTime=q('.wt-ctime'),adjPrev=q('.wt-adjprev'),adjNext=q('.wt-adjnext');
+  let hours=[],days=[],sel=-1,selected=null,width=0,drag=null,destroyed=false,D=null,drawn='';
+  const stamp=t=>t>1e12?t/1000:t,clamp=(v,a,b)=>Math.max(a,Math.min(b,v)),key=t=>keyFmt.format(t*1000),hr=t=>+hourFmt.format(t*1000);
+  const P=(f,t)=>Object.fromEntries(f.formatToParts(t*1000).map(x=>[x.type,x.value])),dayName=t=>{const p=P(longFmt,t);return p.weekday+' '+p.month+' '+p.day},adjName=t=>{const p=P(adjFmt,t);return p.weekday+' '+p.day};
+  const label=t=>dayName(t)+', '+timeFmt.format(t*1000);
+  // local midnight of a calendar day (YYYY-MM-DD) in tz, as unix seconds; two passes of the tz offset settle across DST
+  function off(t){const p=Object.fromEntries(partFmt.formatToParts(t*1000).map(x=>[x.type,+x.value||0]));return Date.UTC(p.year,p.month-1,p.day,p.hour%24,p.minute,p.second)/1000-t}
+  function midnight(k){const [y,m,d]=k.split('-').map(Number),u=Date.UTC(y,m-1,d)/1000;let t=u-off(u);t=u-off(t);return t}
+  function shift(k,n){const d=new Date(k+'T12:00:00Z');d.setUTCDate(d.getUTCDate()+n);return d.toISOString().slice(0,10)}
+  // the selected day: its real hours (slots), which of them the forecast has (a0..a1 = global indices)
+  function dayOf(k){const di=days.findIndex(d=>d.k===k);if(di<0)return null;if(days[di].D)return days[di].D;const m0=midnight(k),m1=midnight(shift(k,1)),n=Math.round((m1-m0)/3600),
+    slots=Array.from({length:n},(_,i)=>({t:m0+i*3600,h:hr(m0+i*3600)})),a0=days[di].a0,a1=days[di].a1;
+   return days[di].D={k,di,m0,n,slots,a0,a1,span:Math.max(1,(n-1)*3600)}}
+  const x=t=>clamp((t-D.m0)/D.span,0,1)*width;
+  // ◀ ▶: same Eastern clock hour on the adjacent day (23/25 real h across DST). If that hour isn't there (spring-forward gap or
+  // outside a partial day), the available hour of that day nearest to that clock time; a repeated fall-back hour takes the copy nearest ±24 h.
+  function dayStep(dir){if(sel<0)return sel;const t=hours[sel].t,di=days.findIndex(d=>d.k===key(t)),tg=days[di+dir];if(!tg)return sel;
+   const h=hr(t),T=t+dir*86400;let best=-1;for(let i=tg.a0;i<=tg.a1;i++)if(hr(hours[i].t)===h&&(best<0||Math.abs(hours[i].t-T)<Math.abs(hours[best].t-T)))best=i;
+   if(best>=0)return best;const G=dayOf(tg.k),want=G.slots.find(s=>s.h===h);const W=want?want.t:G.m0+h*3600;let k=tg.a0;for(let i=tg.a0;i<=tg.a1;i++)if(Math.abs(hours[i].t-W)<Math.abs(hours[k].t-W))k=i;return k}
+  function nearIn(t,a,b){let k=a;for(let i=a+1;i<=b;i++)if(Math.abs(hours[i].t-t)<Math.abs(hours[k].t-t))k=i;return k}
+  const near=t=>nearIn(t,0,hours.length-1);
+  function tooltip(){if(sel<0||!width)return;const r=el.getBoundingClientRect(),tr=track.getBoundingClientRect(),half=tip.offsetWidth/2+3;tip.style.left=clamp(x(hours[sel].t),r.left-tr.left+half,r.right-tr.left-half)+'px'}
+  function markNow(){if(!D)return;const t=Date.now()/1000;now.hidden=t<D.m0||t>D.m0+D.span||t<hours[0].t||t>hours.at(-1).t;if(!now.hidden){now.style.left=x(t)+'px';now.title='Now: '+label(t)}}
+  function draw(){// the selected day's bar: greyed missing hours, available segment, hour ticks with 12a 6a 12p 6p labels
+   const sig=D.k+'|'+width;if(drawn===sig)return;drawn=sig;ticks.replaceChildren();const ha=new Set();for(let i=D.a0;i<=D.a1;i++)ha.add(hours[i].t);
+   avail.style.left=x(hours[D.a0].t)+'px';avail.style.width=Math.max(8,x(hours[D.a1].t)-x(hours[D.a0].t))+'px';const per=width/Math.max(1,D.n-1),seen=new Set();
+   D.slots.forEach(s=>{const major=s.h%6===0&&!seen.has(s.h),offh=!ha.has(s.t);if(!major&&per<6)return;if(major)seen.add(s.h);const px=x(s.t),tk=document.createElement('i');
+    tk.className='wt-tick'+(major?' wt-major':' wt-minor')+(offh?' wt-off':'');tk.style.left=Math.min(width-2,px)+'px';ticks.appendChild(tk);
+    if(major){const tx=document.createElement('span');tx.className='wt-hl'+(offh?' wt-off':'');tx.dataset.time=s.t;tx.textContent=[ '12a','6a','12p','6p'][s.h/6];ticks.appendChild(tx);const half=tx.offsetWidth/2+1;tx.style.left=clamp(px,half,width-half)+'px'}});
+   track.dataset.dayKey=D.k;track.dataset.dayHours=D.n;track.dataset.rangeStart=hours[D.a0].t;track.dataset.rangeEnd=hours[D.a1].t;track.dataset.dayStart=D.m0;
+   track.setAttribute('aria-valuemin',0);track.setAttribute('aria-valuemax',D.n-1);
+   const Pd=days[D.di-1],Nd=days[D.di+1];adjPrev.textContent=Pd?adjName(hours[Pd.a0].t):'';adjNext.textContent=Nd?adjName(hours[Nd.a0].t):'';
+   prev.disabled=!Pd;next.disabled=!Nd;prev.setAttribute('aria-label',Pd?'Previous day, '+dayName(hours[Pd.a0].t):'Previous day (none)');next.setAttribute('aria-label',Nd?'Next day, '+dayName(hours[Nd.a0].t):'Next day (none)')}
+  function choose(k,emit=false){if(!hours.length)return;k=clamp(k,0,hours.length-1);const changed=k!==sel;sel=k;selected=hours[k].t;D=dayOf(key(selected));width=track.clientWidth;
+   const slot=Math.round((selected-D.m0)/3600),lab=label(selected);track.setAttribute('aria-valuenow',slot);track.setAttribute('aria-valuetext',lab);track.dataset.time=selected;
+   curDay.textContent=dayName(selected);curTime.textContent='· '+timeFmt.format(selected*1000);tip.textContent=timeFmt.format(selected*1000).replace(/ [A-Z]+T$/,'');
+   if(width){draw();const px=x(selected),a=x(hours[D.a0].t),hit=clamp(px,22,Math.max(22,width-22));thumb.style.left=hit+'px';dot.style.left=(px-hit+22)+'px';fill.style.left=a+'px';fill.style.width=Math.max(0,px-a)+'px';tooltip();markNow()}
+   if(emit&&changed&&opts.onHour)opts.onHour(selected)}
+  function layout(){if(!hours.length)return;width=track.clientWidth;if(!width)return;drawn='';choose(sel<0?near(Date.now()/1000):sel)}
   function setHours(hs){if(opts.getHours)hs=opts.getHours();hours=hs.map(h=>({t:stamp(h.t)})).filter(h=>Number.isFinite(h.t)).sort((a,b)=>a.t-b.t).filter((h,i,a)=>!i||h.t!==a[i-1].t);
-   track.setAttribute('aria-disabled',!hours.length);track.setAttribute('aria-valuemin',0);track.setAttribute('aria-valuemax',Math.max(0,hours.length-1));
-   if(!hours.length){sel=-1;ticks.replaceChildren();thumb.hidden=now.hidden=true;prev.disabled=next.disabled=true;tip.textContent='No forecast hours';return}
-   thumb.hidden=false;sel=near(selected??Math.floor(Date.now()/36e5)*3600);layout()}
-  function atClient(px){if(!hours.length||!width)return;const f=clamp((px-track.getBoundingClientRect().left)/width,0,1);choose(near(start()+f*(end()-start())),true)}
+   days=[];hours.forEach((h,i)=>{const k=key(h.t),d=days.at(-1);if(d&&d.k===k)d.a1=i;else days.push({k,a0:i,a1:i})});D=null;drawn='';
+   track.setAttribute('aria-disabled',!hours.length);
+   if(!hours.length){sel=-1;ticks.replaceChildren();thumb.hidden=now.hidden=true;prev.disabled=next.disabled=true;tip.textContent='No forecast hours';curDay.textContent='';curTime.textContent='';return}
+   thumb.hidden=false;sel=-1;choose(near(selected??Math.floor(Date.now()/36e5)*3600));layout()}
+  function atClient(px){if(!hours.length||!width||!D)return;const f=clamp((px-track.getBoundingClientRect().left)/width,0,1);choose(nearIn(D.m0+f*D.span,D.a0,D.a1),true)}
   function finish(e){if(!drag||drag.id!==e.pointerId)return;drag=null;el.classList.remove('wt-drag');if(track.hasPointerCapture(e.pointerId))track.releasePointerCapture(e.pointerId)}
   track.addEventListener('pointerdown',e=>{if(!hours.length||e.button>0)return;e.preventDefault();track.focus({preventScroll:true});drag={id:e.pointerId,offset:e.target===thumb?e.clientX-track.getBoundingClientRect().left-x(hours[sel].t):0};track.setPointerCapture(e.pointerId);el.classList.add('wt-drag');if(e.target!==thumb)atClient(e.clientX)});
   track.addEventListener('pointermove',e=>{if(drag&&drag.id===e.pointerId)atClient(e.clientX-drag.offset)});['pointerup','pointercancel','lostpointercapture'].forEach(t=>track.addEventListener(t,finish));
-  track.addEventListener('keydown',e=>{if(!hours.length)return;const d={ArrowUp:1,ArrowDown:-1,PageUp:24,PageDown:-24},day={ArrowRight:1,ArrowLeft:-1};
-   if(e.key in d||e.key in day||e.key==='Home'||e.key==='End'){e.preventDefault();choose(e.key==='Home'?0:e.key==='End'?hours.length-1:e.key in day?dayStep(day[e.key]):sel+d[e.key],true)}});
+  track.addEventListener('keydown',e=>{if(!hours.length||!D)return;const k=e.key,day={ArrowRight:1,ArrowLeft:-1,PageUp:1,PageDown:-1},hour={ArrowUp:1,ArrowDown:-1};
+   if(k in day||k in hour||k==='Home'||k==='End'){e.preventDefault();choose(k==='Home'?D.a0:k==='End'?D.a1:k in day?dayStep(day[k]):sel+hour[k],true)}});
   prev.onclick=()=>choose(dayStep(-1),true);next.onclick=()=>choose(dayStep(1),true);
   const ro=new ResizeObserver(()=>{if(!destroyed)layout()});ro.observe(track);const timer=setInterval(markNow,60000);setHours(opts.hours||[]);
-  return{setHours,setSelected(t){selected=stamp(t);const hs=opts.getHours&&opts.getHours();if(hs&&(!hours.length||hs.length!==hours.length||stamp(hs[0].t)!==start()||stamp(hs[hs.length-1].t)!==end()))setHours(hs);if(hours.length)choose(near(selected))},destroy(){destroyed=true;clearInterval(timer);ro.disconnect();el.remove()}};
+  return{setHours,setSelected(t){selected=stamp(t);const hs=opts.getHours&&opts.getHours();if(hs&&(!hours.length||hs.length!==hours.length||stamp(hs[0].t)!==hours[0].t||stamp(hs[hs.length-1].t)!==hours.at(-1).t))setHours(hs);if(hours.length)choose(near(selected))},destroy(){destroyed=true;clearInterval(timer);ro.disconnect();el.remove()}};
  }
  return{create};
 })();
+
 
 // ===== Wind map (v0.9.24): Leaflet map + Open-Meteo grid + WindFlow moving lines + DayStrip =====
 // Times: Open-Meteo returns unixtime (UTC seconds); every label is formatted in America/New_York via Intl, so EDT->EST (Nov 1) is handled.
@@ -1740,9 +1763,13 @@ async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng
 // NAIP is ~1.6× brighter and less saturated than EOX over the same land, so the .wmTiles brightness(.55) saturate(.7) on line 53 alone would
 // jump brighter at z13→z14. The USGS layer gets its own rule (injected here, outside the protected lines; .wmTiles.wmUsgs outranks .wmTiles).
 // Brightness/saturation only: no blur, tiles drawn 1:1.
-const WM_USGS_FILTER="brightness(.35) saturate(1.45)";
+// v0.9.33 (Wind change 9): brighter map. EOX is re-filtered by a later, more specific rule (#wmMap .wmTiles beats line 53's .wmTiles),
+// USGS keeps its own rule (#wmMap .wmTiles.wmUsgs) tuned to match EOX at the z13→z14 switch. The wind streaks get a thin dark halo
+// (two zero-blur CSS drop-shadows on the WindFlow canvas: right + below/below-left; the protected WindFlow code is untouched). Blurred or
+// 3–4-pass halos measured stronger but dropped the 1280 px map to ~30 fps in software rendering, so this is the 2-pass, 60 fps version.
+const WM_EOX_FILTER="brightness(.82) saturate(.9)",WM_USGS_FILTER="brightness(.5) saturate(2)",WM_HALO="drop-shadow(1px 0 0 #000) drop-shadow(-1px 1px 0 #000)";
 function wmUsgsCss(){if(document.getElementById("wm-usgs-css"))return;const st=document.createElement("style");st.id="wm-usgs-css";
- st.textContent=".wmTiles.wmUsgs{filter:"+WM_USGS_FILTER+"}.wmUsgs canvas.leaflet-tile{outline:1px solid transparent}";document.head.appendChild(st)}
+ st.textContent="#wmMap .wmTiles{filter:"+WM_EOX_FILTER+"}#wmMap .wmTiles.wmUsgs{filter:"+WM_USGS_FILTER+"}.wmUsgs canvas.leaflet-tile{outline:1px solid transparent}#wmMap .windflow-canvas{filter:"+WM_HALO+"}#wmRead{text-shadow:0 1px 2px rgba(0,0,0,.55)}";document.head.appendChild(st)}
 const WM_USGS="https://basemap.nationalmap.gov/arcgis/rest/services/USGSImageryOnly/MapServer/tile/{z}/{y}/{x}";
 // Key USGS no-data out of one RGBA tile in place; returns the share of pixels transparent afterwards. Already-transparent pixels stay as they are.
 // "Black" = every channel ≤ WM_KEY_BLACK. 1) Black connected to the tile border (flood fill from edge pixels, through transparent ones too) is

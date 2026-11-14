@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.33 · Nov 13 2026";// bump on every push
+const BUILD="v0.9.34 · Nov 14 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1767,6 +1767,12 @@ async function wmEnsureArea(){const c=WM.map.getCenter(),A=wmAreaFor(c.lat,c.lng
 // USGS keeps its own rule (#wmMap .wmTiles.wmUsgs) tuned to match EOX at the z13→z14 switch. The wind streaks get a thin dark halo
 // (two zero-blur CSS drop-shadows on the WindFlow canvas: right + below/below-left; the protected WindFlow code is untouched). Blurred or
 // 3–4-pass halos measured stronger but dropped the 1280 px map to ~30 fps in software rendering, so this is the 2-pass, 60 fps version.
+// v0.9.34 (Wind change 10): half as many wind streaks. WindFlow (protected) re-reads opts.particles on every reseed (resize, full screen,
+// moveend), so a getter recomputes WindFlow's own area rule (1 per 220 css px², phone 800–1400 / desktop 1500–2500) and halves it for the
+// current map size. Particles still spawn uniformly at random, so calm and windy areas thin by the same factor. Speed, colours, trails, halo unchanged.
+const WM_FLOW_SCALE=.5;function wmFlowCount(){const s=WM.map.getSize(),a=s.x*s.y,ph=a<500*900||/Mobi|Android|iPhone/i.test(navigator.userAgent||"");
+ return Math.max(1,Math.round(Math.max(ph?800:1500,Math.min(ph?1400:2500,Math.round(a/220)))*WM_FLOW_SCALE))}
+function wmFlowOpts(){return Object.defineProperty({},"particles",{get:wmFlowCount,enumerable:true})}
 const WM_EOX_FILTER="brightness(.82) saturate(.9)",WM_USGS_FILTER="brightness(.5) saturate(2)",WM_HALO="drop-shadow(1px 0 0 #000) drop-shadow(-1px 1px 0 #000)";
 function wmUsgsCss(){if(document.getElementById("wm-usgs-css"))return;const st=document.createElement("style");st.id="wm-usgs-css";
  st.textContent="#wmMap .wmTiles{filter:"+WM_EOX_FILTER+"}#wmMap .wmTiles.wmUsgs{filter:"+WM_USGS_FILTER+"}.wmUsgs canvas.leaflet-tile{outline:1px solid transparent}#wmMap .windflow-canvas{filter:"+WM_HALO+"}#wmRead{text-shadow:0 1px 2px rgba(0,0,0,.55)}";document.head.appendChild(st)}
@@ -1929,7 +1935,7 @@ async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLe
   // unlike USGS imagery, which has black no-data blocks offshore. EOX stays underneath at every zoom as the fallback for the USGS layer.
   L.tileLayer("https://tiles.maps.eox.at/wmts/1.0.0/s2cloudless-2025_3857/default/g/{z}/{y}/{x}.jpg",{maxZoom:16,maxNativeZoom:14,className:"wmTiles",attribution:'<a href="https://cloudless.eox.at">EOxCloudless</a> by EOX IT Services GmbH (Contains modified Copernicus Sentinel data 2025) · Wind: <a href="https://open-meteo.com/">Open-Meteo</a> (CC BY 4.0)'}).addTo(WM.map);
   wmUsgsLayer({minZoom:14,maxZoom:16,maxNativeZoom:16,zIndex:2,className:"wmTiles wmUsgs",attribution:'Imagery z14+: <a href="https://www.usgs.gov/programs/national-geospatial-program/national-map">USGS The National Map</a>'}).addTo(WM.map);
-  WM.wf=WindFlow.create(WM.map,{});WM.map.on("moveend",()=>{if(!WM.fsSizing)wmEnsureArea()});WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
+  WM.wf=WindFlow.create(WM.map,wmFlowOpts());WM.map.on("moveend",()=>{if(!WM.fsSizing)wmEnsureArea()});WM.map.on("click",e=>wmReadout(e.latlng.lat,e.latlng.lng));
   WM.ds=WindTimeline.create($("wmDays"),{hours:[],tz:WM_TZ,getHours:()=>WM.area?WM.area.H.map(h=>({t:h.t/1000})):[],onHour:t=>{const R=WM.area;if(!R)return;const k=R.H.findIndex(h=>h.t==t*1000);if(k>=0)wmSetHour(k,true)}});
   $("wmLeg").innerHTML="<b>kt</b>"+WindFlow.legendStops.map(([k,c])=>`<span><i style="background:${c}"></i>${k}${k==30?"+":""}</span>`).join("");wmFsInit()}
  WM.map.invalidateSize();

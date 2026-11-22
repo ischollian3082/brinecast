@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.34 · Nov 14 2026";// bump on every push
+const BUILD="v0.9.35 · Nov 22 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1946,6 +1946,12 @@ async function wmShow(force){if(S.view!="wind"||!S.loc)return;try{await wmLoadLe
 
 function wmHide(){if(WM.fs&&WM.fs.on)WM.fs.exit("view");if(WM.wf)WM.wf.stop()}
 
+// v0.9.35: Sun & Moon merged into Weather. VIEWS (line 387) is protected, so it is changed here, in place. It is a const array, but only the
+// binding is const. Nothing reads VIEWS while the script is evaluated: only show() and renderMenu() read it, at call time, and the first call
+// is the show() on the next line. The empty <nav id="menu"> is filled by that call, so the old tab is never rendered. #sky (line 83) already
+// follows #forecast in the DOM, so it shows directly under the forecast. An old "sky" view (localStorage "view", or ?view=sky) is not in VIEWS
+// any more, so show() falls back to VIEWS[0] = Weather and rewrites the saved view. renderSky, fail("sky") / fail("solunar") and Solunar are unchanged.
+{const w=VIEWS.find(x=>x[0]=="weather"),i=VIEWS.findIndex(x=>x[0]=="sky");w[2]=["now","forecast","sky"];if(i>=0)VIEWS.splice(i,1)}
 S.buoy={};$("build").textContent="Brinecast "+BUILD;renderLog();renderFavs();renderGo();show(new URLSearchParams(location.search).get("view")||LS.get("view","weather"));
 const qp=new URLSearchParams(location.search);
 if(qp.get("lat"))setLoc({name:qp.get("name")||"Spot",lat:+qp.get("lat"),lon:+qp.get("lon")});

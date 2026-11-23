@@ -94,7 +94,7 @@ main section.card{display:none}main section.card.show{display:block}html,body{ov
 </main>
 <script>
 "use strict";
-const BUILD="v0.9.35 · Nov 22 2026";// bump on every push
+const BUILD="v0.9.36 · Nov 23 2026";// bump on every push
 const $=id=>document.getElementById(id), S={loc:null,wx:null,tide:null,cur:{}};
 const LS={get:(k,d)=>{try{return JSON.parse(localStorage.getItem(k))??d}catch(e){return d}},set:(k,v)=>localStorage.setItem(k,JSON.stringify(v))};try{localStorage.removeItem("seaLife")}catch(e){}// v0.9.11 had a Sea life switch; sea life is always on now
 const esc=s=>String(s??"").replace(/[&<>"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c]));
@@ -1952,6 +1952,91 @@ function wmHide(){if(WM.fs&&WM.fs.on)WM.fs.exit("view");if(WM.wf)WM.wf.stop()}
 // follows #forecast in the DOM, so it shows directly under the forecast. An old "sky" view (localStorage "view", or ?view=sky) is not in VIEWS
 // any more, so show() falls back to VIEWS[0] = Weather and rewrites the saved view. renderSky, fail("sky") / fail("solunar") and Solunar are unchanged.
 {const w=VIEWS.find(x=>x[0]=="weather"),i=VIEWS.findIndex(x=>x[0]=="sky");w[2]=["now","forecast","sky"];if(i>=0)VIEWS.splice(i,1)}
+// v0.9.36 (1/2): Currents tab removed. Tides already shows #tides and #currents. VIEWS (line 387) is edited in place here, like the v0.9.35 block
+// above. Old links use an explicit alias rather than show()'s fallback, which would land on Weather: show is a global function binding, so it
+// is wrapped once here, before its first call on the init line below. ?view=currents, a saved "currents" view and show("currents") from code all
+// map to Tides, and show() then rewrites the saved view to "tides".
+const VIEW_ALIAS={currents:"tides",sky:"weather"};
+{const i=VIEWS.findIndex(x=>x[0]=="currents");if(i>=0)VIEWS.splice(i,1);const _show=show;show=function(v){return _show(Object.prototype.hasOwnProperty.call(VIEW_ALIAS,v)?VIEW_ALIAS[v]:v)}}
+// v0.9.36 (2/2): a weather scene behind the Now card, from the current WMO weather_code and day/night. Inputs: S.wx.current.weather_code from
+// the forecast the app already downloaded, and isNight() (the same sun model the Now icon uses; the request has no is_day field and line 206 is
+// protected). No new requests; the scene is CSS + inline SVG only. Kinds:
+//   0–1 clear · 2 partly cloudy · 3 overcast · 45/48 fog · 51–67 + 80–82 drizzle/rain · 71–77 + 85–86 snow · 95–99 thunder.
+// Layers inside #now (isolation:isolate, overflow:hidden): #nowScene (sky, sun/moon, stars, clouds, fog, rain, snow, flash; z-index:-1) →
+// a light card-coloured veil over the scene (#nowScene::after) → the text, whose blocks (h2, the two columns, the water-temp line) sit on
+// local frosted scrims (card colour at 84–86% + backdrop blur) so every text block keeps ≥4.5:1 against the worst pixel behind it. The scrims'
+// padding is cancelled by equal negative margins, so the card keeps the live height and nothing below it moves.
+// Fallback: if the forecast failed (S.wxErr), is missing, belongs to another spot or has an unknown code, #nowScene is removed and body.wbOn is
+// not set, so the card and the page are exactly the live look. The rest of the page (header, forecast card, other cards) is never touched.
+// The scene only exists inside #now, which is display:none off the Weather view (no animations there). Animations pause on visibilitychange
+// (html.wbPaused) and are off under prefers-reduced-motion (the static scene stays, and the flash stays dark). Lightning: one soft double
+// flash per 9 s cycle (2 flashes in any 5 s; the limit is 3). The r1 page-wide #wxbg was dropped (see README).
+const WB={ref:null,loc:null,kind:null,day:null};
+const wbLocKey=()=>S.loc?(+S.loc.lat).toFixed(4)+","+(+S.loc.lon).toFixed(4):"";
+function wbKind(c){if(c==null||c===""||!isFinite(c))return null;c=+c;return c<=1?"clear":c==2?"partly":c==3?"overcast":c==45||c==48?"fog":(c>=51&&c<=67)||(c>=80&&c<=82)?"rain":(c>=71&&c<=77)||c==85||c==86?"snow":c>=95&&c<=99?"thunder":null}
+function wbScene(k,d){const cl=(c,v)=>`<svg class="cl ${c}" viewBox="0 0 120 60" style="color:var(${v||"--cl"})"><path d="M26 58a20 20 0 0 1-3-39.7A26 26 0 0 1 71 9a20 20 0 0 1 28 15.5A17 17 0 0 1 101 58Z"/></svg>`,
+  orb=d?'<i class="sun"></i>':'<i class="moon"></i>',stars='<i class="st st1"></i><i class="st st2"></i>',rain='<i class="rn r1"></i><i class="rn r2"></i>';
+ return {clear:orb+(d?"":stars),partly:orb+(d?"":'<i class="st st1"></i>')+cl("c1")+cl("c2"),overcast:cl("c3","--cl2")+cl("c1","--cl2")+cl("c2")+cl("c4"),fog:orb.replace('"','"dim ')+'<i class="fg f1"></i><i class="fg f2"></i><i class="fg f3"></i>',
+  rain:cl("c3","--cl2")+cl("c1")+cl("c2","--cl2")+rain,snow:cl("c3","--cl2")+cl("c1")+cl("c2")+'<i class="sn s1"></i><i class="sn s2"></i>',
+  thunder:cl("c3","--cl2")+cl("c1")+cl("c2","--cl2")+'<svg class="bolt" viewBox="0 0 24 48"><path d="M15 0 3 27h8L6 48 21 19h-8l6-19Z"/></svg>'+rain+'<i class="fl"></i>'}[k]}
+function wbUpdate(){try{if(S.wx!==WB.ref){WB.ref=S.wx;WB.loc=wbLocKey()}
+ const c=S.wx&&S.wx.current,k=!S.wxErr&&c&&WB.loc===wbLocKey()?wbKind(c.weather_code):null,d=k?!isNight(Date.now(),S.loc&&S.loc.lat,S.loc&&S.loc.lon):null,n=$("now");
+ WB.kind=k;WB.day=d;let sc=document.getElementById("nowScene");
+ if(k&&n){if(!sc||sc.parentNode!==n){if(sc)sc.remove();sc=document.createElement("div");sc.id="nowScene";sc.setAttribute("aria-hidden","true");n.prepend(sc)}
+  const cls="ns-"+k+" ns-"+(d?"day":"night");if(sc.className!==cls){sc.className=cls;sc.innerHTML=wbScene(k,d)}}else if(sc)sc.remove();
+ document.body.classList.toggle("wbOn",!!(k&&n))}catch(e){document.body.classList.remove("wbOn");const sc=document.getElementById("nowScene");if(sc)sc.remove()}}
+{//        theme  kind.daynight     sky top  sky bottom  cloud    cloud 2  rain                    fog
+ const v=(n,s1,s2,c1,c2,rn,fg)=>`#nowScene.ns-${n}{--s1:${s1};--s2:${s2};--cl:${c1};--cl2:${c2};--rn:${rn};--fg:${fg}}`,
+ D=[["clear.ns-day","#3a8fd6","#1d5a92","#e9f0f7","#c9d4df","#fff","#fff"],["clear.ns-night","#081633","#17305c","#5d6c86","#4a5870","#fff","#fff"],
+  ["partly.ns-day","#3b86c4","#1f5580","#eef3f8","#c3cfdb","#fff","#fff"],["partly.ns-night","#0b1934","#192c50","#6a7892","#56637b","#fff","#fff"],
+  ["overcast.ns-day","#62727f","#3e4c5a","#b5c0ca","#8b99a8","#fff","#fff"],["overcast.ns-night","#1c2430","#28323f","#505b6a","#3d4756","#fff","#fff"],
+  ["fog.ns-day","#6c7a87","#4d5a66","#fff","#fff","#fff","rgba(226,233,239,.78)"],["fog.ns-night","#1b242e","#29333f","#fff","#fff","#fff","rgba(165,176,189,.55)"],
+  ["rain.ns-day","#4b5c6f","#2e3e4f","#97a5b3","#6f7e8e","rgba(195,218,242,.8)","#fff"],["rain.ns-night","#121b28","#1b2636","#45505f","#333d4b","rgba(155,185,220,.7)","#fff"],
+  ["snow.ns-day","#7f8fa2","#58687b","#dbe2ea","#b4bfcb","#fff","#fff"],["snow.ns-night","#1d2634","#2b3647","#5c6880","#48536a","#fff","#fff"],
+  ["thunder.ns-day","#3a3f56","#22263a","#5f657b","#464b60","rgba(185,200,235,.75)","#fff"],["thunder.ns-night","#12131d","#1c1e2c","#373b4f","#282b3c","rgba(150,165,210,.65)","#fff"]],
+ Lt=[["clear.ns-day","#5eaeea","#b5dbf7","#fff","#e3ebf2","#fff","#fff"],["clear.ns-night","#22325a","#46598a","#9aa6c0","#7f8ba6","#fff","#fff"],
+  ["partly.ns-day","#6aaee3","#bcdaf1","#fff","#dfe7ef","#fff","#fff"],["partly.ns-night","#2a395f","#4f618b","#a2adc5","#86919f","#fff","#fff"],
+  ["overcast.ns-day","#8f9cab","#c3ccd5","#eef1f4","#c2cad3","#fff","#fff"],["overcast.ns-night","#3a4354","#5b6476","#828c9d","#6a7485","#fff","#fff"],
+  ["fog.ns-day","#a9b4bf","#d8dee4","#fff","#fff","#fff","rgba(255,255,255,.88)"],["fog.ns-night","#434d5c","#68727f","#fff","#fff","#fff","rgba(205,213,223,.62)"],
+  ["rain.ns-day","#7d8ea1","#b4c1ce","#d9e0e7","#aab6c2","rgba(30,70,125,.6)","#fff"],["rain.ns-night","#2d3749","#4a5567","#6e798d","#586377","rgba(195,212,236,.65)","#fff"],
+  ["snow.ns-day","#8ea3bb","#cfdae6","#f4f7fa","#d2dae3","#fff","#fff"],["snow.ns-night","#323e56","#556279","#8691a8","#6c778e","#fff","#fff"],
+  ["thunder.ns-day","#525a72","#858ca2","#7a8096","#5d6479","rgba(225,233,250,.75)","#fff"],["thunder.ns-night","#1f2236","#383c54","#4b5068","#3a3e54","rgba(190,200,235,.65)","#fff"]];
+ const R=`body.wbOn #now{position:relative;isolation:isolate;overflow:hidden;--vA:18%;--pA:86%}
+#nowScene{position:absolute;inset:0;z-index:-1;pointer-events:none;overflow:hidden;border-radius:inherit;background:linear-gradient(180deg,var(--s1),var(--s2))}
+#nowScene::after{content:"";position:absolute;inset:0;background:color-mix(in srgb,var(--card) var(--vA),transparent)}
+#nowScene>*{position:absolute;display:block}
+body.wbOn #now>h2,body.wbOn #now>.wtslot:not(:empty){width:fit-content}
+body.wbOn #now>h2,body.wbOn #now>.row>div,body.wbOn #now>.wtslot:not(:empty){background:color-mix(in srgb,var(--card) var(--pA),transparent);-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);border-radius:10px;padding:3px 8px;margin:-3px -8px}
+body.wbOn #now>h2{padding:2px 8px;margin:-2px -8px 6px}body.wbOn #now>.wtslot:not(:empty){margin:3px -8px -3px!important}
+#nowScene .sun{right:28px;top:16px;width:56px;height:56px;border-radius:50%;background:radial-gradient(circle at 40% 38%,#fffbe8 0,#ffe27a 45%,#ffc23a 78%,#ffab1f 100%);box-shadow:0 0 22px 8px rgba(255,200,80,.5),0 0 64px 24px rgba(255,180,60,.22)}
+#nowScene .sun::before{content:"";position:absolute;inset:-24px;border-radius:50%;background:repeating-conic-gradient(rgba(255,214,110,.55) 0 5deg,transparent 5deg 30deg);-webkit-mask:radial-gradient(closest-side,transparent 60%,#000 66%,transparent 100%);mask:radial-gradient(closest-side,transparent 60%,#000 66%,transparent 100%);animation:nsSpin 60s linear infinite}
+#nowScene .moon{right:34px;top:16px;width:46px;height:46px;border-radius:50%;box-shadow:inset -13px 7px 0 0 #f4f0dc;filter:drop-shadow(0 0 9px rgba(240,236,210,.6));animation:nsGlow 6s ease-in-out infinite alternate}
+#nowScene .dim{opacity:.55;top:10px}#nowScene .sun.dim::before{display:none}
+#nowScene .st{inset:0;background-image:radial-gradient(1.6px 1.6px at 62% 22%,#fff 50%,transparent),radial-gradient(1.2px 1.2px at 74% 62%,#fff 50%,transparent),radial-gradient(1.4px 1.4px at 93% 70%,#fff 50%,transparent),radial-gradient(1.1px 1.1px at 55% 48%,#fff 50%,transparent),radial-gradient(1.5px 1.5px at 97% 12%,#fff 50%,transparent),radial-gradient(1.1px 1.1px at 40% 10%,#fff 50%,transparent);animation:nsTwinkle 4s ease-in-out infinite alternate}
+#nowScene .st2{background-image:radial-gradient(1.3px 1.3px at 68% 40%,#fff 50%,transparent),radial-gradient(1.6px 1.6px at 85% 30%,#fff 50%,transparent),radial-gradient(1.1px 1.1px at 80% 88%,#fff 50%,transparent),radial-gradient(1.2px 1.2px at 48% 80%,#fff 50%,transparent),radial-gradient(1.2px 1.2px at 28% 92%,#fff 50%,transparent);animation-duration:5.5s;animation-delay:-2s}
+#nowScene .cl{fill:currentColor;height:auto;filter:drop-shadow(0 2px 3px rgba(0,0,0,.18));animation:nsDrift 16s ease-in-out infinite alternate}
+#nowScene .c1{right:4px;top:44px;width:98px}#nowScene .c2{right:112px;top:18px;width:66px;animation-duration:21s;animation-direction:alternate-reverse}
+#nowScene .c3{right:-26px;top:-12px;width:160px;animation-duration:24s}#nowScene .c4{right:150px;top:-4px;width:120px;animation-duration:19s;animation-direction:alternate-reverse}
+#nowScene.ns-overcast .c1{right:58px;top:28px;width:130px}#nowScene.ns-overcast .c2{right:-10px;top:52px;width:110px}
+#nowScene.ns-rain .c1,#nowScene.ns-snow .c1,#nowScene.ns-thunder .c1{right:56px;top:-8px;width:124px}#nowScene.ns-rain .c2,#nowScene.ns-snow .c2,#nowScene.ns-thunder .c2{right:-14px;top:12px;width:104px}#nowScene.ns-rain .c3,#nowScene.ns-snow .c3,#nowScene.ns-thunder .c3{right:150px;top:-22px}
+#nowScene .fg{left:-30%;width:160%;height:30px;border-radius:50%;background:linear-gradient(90deg,transparent,var(--fg) 18%,var(--fg) 45%,transparent 55%,var(--fg) 70%,var(--fg) 85%,transparent);filter:blur(5px);animation:nsFog 18s ease-in-out infinite alternate}
+#nowScene .f1{top:26%}#nowScene .f2{top:52%;animation-duration:24s;animation-direction:alternate-reverse}#nowScene .f3{top:78%;animation-duration:30s}
+#nowScene .rn{left:-15%;right:-15%;top:-96px;bottom:0;background-image:radial-gradient(1px 9px at 9px 18px,var(--rn) 55%,transparent),radial-gradient(1px 11px at 31px 64px,var(--rn) 55%,transparent),radial-gradient(1px 8px at 21px 88px,var(--rn) 55%,transparent);background-size:42px 96px;animation:nsRain .8s linear infinite}
+#nowScene .r2{top:-72px;background-size:29px 72px;opacity:.6;animation-duration:1.1s}
+#nowScene .sn{left:0;right:0;top:-90px;bottom:0;background-image:radial-gradient(circle at 12px 20px,#fff 2.1px,transparent 2.8px),radial-gradient(circle at 44px 66px,#fff 1.6px,transparent 2.3px),radial-gradient(circle at 30px 46px,#fff 1.2px,transparent 1.9px);background-size:58px 90px;filter:drop-shadow(0 0 1px rgba(40,60,90,.45));animation:nsSnow 9s linear infinite}
+#nowScene .s2{top:-70px;background-size:41px 70px;opacity:.75;animation-duration:13s}
+#nowScene .bolt{right:66px;top:40px;width:22px;height:44px;fill:#fff6c8;filter:drop-shadow(0 0 6px rgba(255,240,170,.9));opacity:0;animation:nsFlash 9s linear infinite}
+#nowScene .fl{inset:0;background:radial-gradient(ellipse 70% 90% at 75% 0,rgba(255,255,255,.75),rgba(210,220,255,.3) 60%,transparent 100%);opacity:0;animation:nsFlash 9s linear infinite}
+@keyframes nsSpin{to{transform:rotate(360deg)}}@keyframes nsGlow{from{opacity:.85}to{opacity:1}}@keyframes nsTwinkle{from{opacity:.35}to{opacity:1}}
+@keyframes nsDrift{from{transform:translateX(-10px)}to{transform:translateX(10px)}}@keyframes nsFog{from{transform:translateX(-8%)}to{transform:translateX(8%)}}
+@keyframes nsRain{from{transform:translateY(0) skewX(-10deg)}to{transform:translateY(96px) skewX(-10deg)}}#nowScene .r2{animation-name:nsRain2}@keyframes nsRain2{from{transform:translateY(0) skewX(-10deg)}to{transform:translateY(72px) skewX(-10deg)}}
+@keyframes nsSnow{0%{transform:translate(0,0)}50%{transform:translate(6px,45px)}100%{transform:translate(0,90px)}}#nowScene .s2{animation-name:nsSnow2}@keyframes nsSnow2{0%{transform:translate(0,0)}50%{transform:translate(-5px,35px)}100%{transform:translate(0,70px)}}
+@keyframes nsFlash{0%,80%{opacity:0}81%{opacity:.85}83%{opacity:.12}85%{opacity:.55}88%,100%{opacity:0}}
+.wbPaused #nowScene *,.wbPaused #nowScene ::before{animation-play-state:paused!important}@media (prefers-reduced-motion:reduce){#nowScene *,#nowScene ::before{animation:none!important}}
+${D.map(x=>v(...x)).join("")}@media (prefers-color-scheme:light){body.wbOn #now{--vA:15%;--pA:84%}${Lt.map(x=>v(...x)).join("")}}`;
+ const st=document.createElement("style");st.id="wxbgCss";st.textContent=R;document.head.appendChild(st);
+ const _rs=renderSummary;renderSummary=function renderSummary(){try{return _rs.apply(this,arguments)}finally{wbUpdate()}};
+ document.addEventListener("visibilitychange",()=>{document.documentElement.classList.toggle("wbPaused",document.hidden);if(!document.hidden)wbUpdate()})}
 S.buoy={};$("build").textContent="Brinecast "+BUILD;renderLog();renderFavs();renderGo();show(new URLSearchParams(location.search).get("view")||LS.get("view","weather"));
 const qp=new URLSearchParams(location.search);
 if(qp.get("lat"))setLoc({name:qp.get("name")||"Spot",lat:+qp.get("lat"),lon:+qp.get("lon")});
